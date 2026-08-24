@@ -1,0 +1,81 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>项目进度管理 V1.1.0</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div id="app" class="app-shell">
+    <header class="app-header">
+      <div class="brand"><span class="brand-mark">◆</span><span>项目进度管理</span><em>V1.1.0</em></div>
+      <nav class="menu-bar" aria-label="文件操作">
+        <button id="btnNew">新建</button><button id="btnOpen">打开项目</button><button id="btnSave">保存</button><button id="btnSaveAs">另存为</button>
+        <span class="toolbar-divider"></span>
+        <button id="btnImport">导入 Excel</button><button id="btnExport">导出 Excel</button>
+      </nav>
+      <span class="header-spacer"></span>
+      <span id="saveState" class="save-state">已自动保存</span>
+    </header>
+
+    <section class="toolbar" aria-label="任务操作">
+      <button id="btnAddRoot" class="primary">＋ 一级任务</button>
+      <button id="btnDelete">删除选中</button>
+      <button id="btnPromote">← 提级</button>
+      <button id="btnDemote">→ 降级</button>
+      <button id="btnMoveUp">↑ 上移</button>
+      <button id="btnMoveDown">↓ 下移</button>
+      <button id="btnMoveTo">移动到…</button>
+      <label class="inline-field">批量状态<select id="batchStatus"><option value="">请选择</option></select></label>
+      <span class="toolbar-divider"></span>
+      <button id="btnAddColumn">＋ 添加列</button><button id="btnManageColumns">列管理</button>
+      <button id="btnUndo" title="Ctrl+Z">撤销</button><button id="btnRedo" title="Ctrl+Y">重做</button>
+    </section>
+
+    <section class="viewbar">
+      <div class="view-group"><span class="view-label">导航层级</span>
+        <button class="depth-btn" data-depth="1">一级</button><button class="depth-btn" data-depth="2">二级</button><button class="depth-btn" data-depth="3">三级</button><button class="depth-btn" data-depth="4">四级</button>
+        <button id="btnExpandAll">全部展开</button><button id="btnCollapseAll">全部收起</button>
+      </div>
+      <div id="filterBar" class="filter-bar"></div><button id="btnClearFilters" class="quiet">清除筛选</button>
+      <label class="chart-switch"><input id="chartVisible" type="checkbox" checked><span></span>显示状态图</label>
+    </section>
+
+    <section id="chartAssociation" class="association-panel">
+      <div class="association-title"><strong>状态图关联</strong><span>勾选自定义列后选择内容；不同列之间按“且”筛选。</span></div>
+      <div id="associationControls" class="association-controls"></div>
+    </section>
+
+    <section class="summary-bar">
+      <div><strong id="taskCount">0</strong><span>项任务</span></div><div><strong id="overallProgress">0%</strong><span>整体进度</span></div>
+      <div id="selectionSummary" class="selection-summary">未选择任务</div><div id="activeFilterSummary" class="active-filter-summary"></div>
+    </section>
+
+    <main id="workspace" class="workspace">
+      <section id="tablePanel" class="table-panel"><div id="tableScroll" class="table-scroll"><table id="taskTable"><colgroup id="tableCols"></colgroup><thead><tr id="tableHead"></tr></thead><tbody id="taskBody"></tbody></table></div><div id="columnGuide" class="column-guide"><span id="columnGuideText"></span></div></section>
+      <div id="panelResize" class="panel-resize" title="拖动调整表格与状态图宽度"></div>
+      <section id="chartPanel" class="chart-panel"><div id="chartScroll" class="chart-scroll"><table class="status-chart"><thead><tr><th class="chart-task-col">任务</th><th>未开始</th><th>进行中</th><th>已完成</th><th>完成但存在问题</th></tr></thead><tbody id="chartBody"></tbody></table></div></section>
+    </main>
+
+    <footer class="statusbar"><span id="statusMessage">准备就绪</span><span class="footer-spacer"></span><span class="legend"><i class="dot notstarted"></i>未开始<i class="dot doing"></i>进行中<i class="dot done"></i>已完成<i class="dot issue"></i>完成但存在问题 / 延期</span></footer>
+  </div>
+
+  <input id="excelInput" type="file" accept=".xlsx,.xls" hidden>
+
+  <div id="columnModal" class="modal" aria-hidden="true"><div class="modal-card small-card"><header><h2 id="columnModalTitle">添加自定义列</h2><button class="modal-close" data-close="columnModal">×</button></header><div class="modal-body form-grid"><label>列名称<input id="columnName" maxlength="30" placeholder="例如：负责人"></label><label>列类型<select id="columnType"><option value="text">文本</option><option value="number">数字</option><option value="select">下拉菜单</option><option value="checkbox">复选框</option></select></label><label id="columnOptionsWrap" class="full-row">下拉选项（每行一个）<textarea id="columnOptions" rows="6" placeholder="A&#10;B&#10;C"></textarea></label></div><footer><button data-close="columnModal">取消</button><button id="btnSaveColumn" class="primary">保存</button></footer></div></div>
+
+  <div id="manageColumnsModal" class="modal" aria-hidden="true"><div class="modal-card wide-card"><header><h2>列管理</h2><button class="modal-close" data-close="manageColumnsModal">×</button></header><div class="modal-body"><p class="modal-help">双击表头也可以改名。系统列可以改显示名称，但不能删除。</p><div id="columnManagerList" class="column-manager-list"></div></div><footer><button data-close="manageColumnsModal" class="primary">完成</button></footer></div></div>
+
+  <div id="moveModal" class="modal" aria-hidden="true"><div class="modal-card small-card"><header><h2>移动选中任务</h2><button class="modal-close" data-close="moveModal">×</button></header><div class="modal-body form-grid"><label class="full-row">移动到<select id="moveTarget"></select></label><p class="modal-help full-row">选择“一级任务区”会把任务提到一级；选择某项任务会成为它的子任务。</p></div><footer><button data-close="moveModal">取消</button><button id="btnConfirmMove" class="primary">移动</button></footer></div></div>
+
+  <div id="importModal" class="modal" aria-hidden="true"><div class="modal-card wide-card"><header><h2>Excel 导入预览</h2><button class="modal-close" data-close="importModal">×</button></header><div class="modal-body"><div id="importSummary" class="import-summary"></div><div id="importPreview" class="import-preview"></div></div><footer><button data-close="importModal">取消</button><button id="btnConfirmImport" class="primary">确认导入</button></footer></div></div>
+
+  <div id="renameModal" class="modal" aria-hidden="true"><div class="modal-card small-card"><header><h2>修改列名称</h2><button class="modal-close" data-close="renameModal">×</button></header><div class="modal-body form-grid"><label class="full-row">新名称<input id="renameColumnName" maxlength="30"></label></div><footer><button data-close="renameModal">取消</button><button id="btnConfirmRename" class="primary">确认修改</button></footer></div></div>
+
+  <div id="parentStatusModal" class="modal" aria-hidden="true"><div class="modal-card small-card"><header><h2>批量修改父任务状态</h2><button class="modal-close" data-close="parentStatusModal">×</button></header><div class="modal-body form-grid"><p id="parentStatusHelp" class="modal-help full-row"></p><label class="full-row">应用状态<select id="parentStatusSelect"></select></label></div><footer><button data-close="parentStatusModal">取消</button><button id="btnConfirmParentStatus" class="primary">应用到全部后代</button></footer></div></div>
+
+  <div id="toastRegion" class="toast-region" aria-live="polite"></div><div id="dragHint" class="drag-hint"></div>
+  <script src="xlsx.full.min.js"></script><script src="exceljs.min.js"></script><script src="app.js"></script>
+</body>
+</html>
