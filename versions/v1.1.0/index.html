@@ -3,26 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>项目进度管理 V1.2.0 在线协作版</title>
-  <link rel="stylesheet" href="css/style.css">
-  <link rel="stylesheet" href="css/cloud.css">
+  <title>项目进度管理 V1.1.0</title>
+  <link rel="stylesheet" href="style.css">
 </head>
 <body>
   <div id="app" class="app-shell">
     <header class="app-header">
-      <div class="brand"><span class="brand-mark">◆</span><span>项目进度管理</span><em>V1.2.0 在线协作</em></div>
+      <div class="brand"><span class="brand-mark">◆</span><span>项目进度管理</span><em>V1.1.0</em></div>
       <nav class="menu-bar" aria-label="文件操作">
         <button id="btnNew">新建</button><button id="btnOpen">打开项目</button><button id="btnSave">保存</button><button id="btnSaveAs">另存为</button>
         <span class="toolbar-divider"></span>
         <button id="btnImport">导入 Excel</button><button id="btnExport">导出 Excel</button>
       </nav>
       <span class="header-spacer"></span>
-      <div class="cloud-toolbar">
-        <span id="cloudConnection" class="cloud-connection local"><i></i><span>仅本机</span></span>
-        <button id="btnCloudProject" class="cloud-project-button">登录云端</button>
-        <span id="cloudUser" class="cloud-user hidden"></span>
-        <button id="btnCloudLogout" class="quiet hidden">退出</button>
-      </div>
       <span id="saveState" class="save-state">已自动保存</span>
     </header>
 
@@ -82,30 +75,7 @@
 
   <div id="parentStatusModal" class="modal" aria-hidden="true"><div class="modal-card small-card"><header><h2>批量修改父任务状态</h2><button class="modal-close" data-close="parentStatusModal">×</button></header><div class="modal-body form-grid"><p id="parentStatusHelp" class="modal-help full-row"></p><label class="full-row">应用状态<select id="parentStatusSelect"></select></label></div><footer><button data-close="parentStatusModal">取消</button><button id="btnConfirmParentStatus" class="primary">应用到全部后代</button></footer></div></div>
 
-  <div id="cloudModal" class="modal" aria-hidden="true"><div class="modal-card cloud-card"><header><div><h2>云端协作</h2><p class="cloud-modal-subtitle">每个人使用自己的账号，通过项目共享码加入同一项目。</p></div><button class="modal-close" data-close="cloudModal">×</button></header>
-    <div class="modal-body">
-      <section id="cloudAuthView" class="cloud-view">
-        <div class="cloud-notice">当前仍会自动保存在本机。登录后，选中的项目才会同步到 Supabase。</div>
-        <div class="cloud-auth-grid"><label>邮箱<input id="cloudEmail" type="email" autocomplete="username" placeholder="name@example.com"></label><label>密码<input id="cloudPassword" type="password" autocomplete="current-password" minlength="6" placeholder="至少 6 位"></label></div>
-        <div class="cloud-actions"><button id="btnCloudRegister">注册账号</button><button id="btnCloudLogin" class="primary">登录</button></div>
-        <p class="cloud-help">首次注册后如未自动登录，请到邮箱点击 Supabase 发来的确认链接，再返回这里登录。</p>
-      </section>
-      <section id="cloudProjectsView" class="cloud-view hidden">
-        <div class="cloud-account-row"><div><span>当前账号</span><strong id="cloudAccountEmail"></strong></div><button id="btnRefreshProjects">刷新项目</button></div>
-        <div id="cloudCurrentProject" class="cloud-current hidden"><div><span>当前协作项目</span><strong id="cloudCurrentProjectName"></strong></div><div class="share-code"><span>共享码</span><code id="cloudShareCode"></code><button id="btnCopyShareCode">复制</button></div><small>把共享码发给成员即可；不要共享你的密码。</small></div>
-        <label class="cloud-project-select">切换项目<select id="cloudProjectSelect"><option value="">请选择项目</option></select></label>
-        <div class="cloud-project-grid">
-          <div><h3>创建新项目</h3><label>项目名称<input id="cloudNewProjectName" maxlength="60" placeholder="例如：XX 环评项目"></label><button id="btnCreateCloudProject" class="primary">用当前页面内容创建</button></div>
-          <div><h3>加入已有项目</h3><label>项目共享码<input id="cloudJoinCode" maxlength="20" placeholder="输入成员发来的共享码"></label><button id="btnJoinCloudProject">加入并载入</button></div>
-        </div>
-        <div id="cloudActivity" class="cloud-activity">尚未选择云端项目。</div>
-      </section>
-    </div>
-  </div>
-
   <div id="toastRegion" class="toast-region" aria-live="polite"></div><div id="dragHint" class="drag-hint"></div>
-  <script src="libs/xlsx.full.min.js"></script><script src="libs/exceljs.min.js"></script>
-  <script src="libs/supabase.min.js"></script>
-  <script src="js/app.js"></script><script src="js/cloud-config.js"></script><script src="js/cloud.js"></script>
+  <script src="xlsx.full.min.js"></script><script src="exceljs.min.js"></script><script src="app.js"></script>
 </body>
 </html>
