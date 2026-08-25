@@ -3,7 +3,6 @@
 (function () {
   const PROJECT_KEY = 'project-progress-manager-v1.2.0-cloud-project';
   const config = window.PROJECT_CLOUD_CONFIG || {};
-  let recoveryIntent = /(?:^|[?#&])type=recovery(?:&|$)/i.test(location.hash + '&' + location.search);
   let app = null;
   let client = null;
   let session = null;
@@ -33,14 +32,6 @@
     el.cloudConnection.querySelector('span').textContent = label;
   }
   function openCloudModal() { el.cloudModal.classList.add('open'); el.cloudModal.setAttribute('aria-hidden', 'false'); renderAccountState(); }
-  function enterPasswordRecovery(nextSession, notifyUser) {
-    if (nextSession) session = nextSession;
-    recoveryIntent = false;
-    authView = 'reset-password';
-    openCloudModal();
-    if (notifyUser) toast('请设置新密码', '邮箱验证已通过，请在这里输入并保存新密码。', 'success');
-    setTimeout(function () { if (el.cloudNewPassword) el.cloudNewPassword.focus(); }, 0);
-  }
   function setBusy(button, busy, busyText) {
     if (!button) return;
     if (busy) { button.dataset.originalText = button.textContent; button.textContent = busyText || '处理中…'; button.disabled = true; }
@@ -306,7 +297,7 @@
       el.cloudNewPasswordConfirm.value = '';
       authView = 'login';
       if (location.hash) history.replaceState(null, document.title, location.pathname + location.search);
-      await handleSession(session, true);
+      renderAccountState();
       toast('密码已更新', '新密码已经生效。你已保持登录状态，可以继续使用云端协作。', 'success');
     } catch (error) { toast('设置新密码失败', humanError(error), 'error'); }
     finally { setBusy(el.btnCloudUpdatePassword, false); }
@@ -396,27 +387,23 @@
       setConnection('error', '云端组件未载入'); el.btnCloudProject.textContent = '云端暂不可用'; el.btnCloudProject.disabled = true; return;
     }
     client = window.supabase.createClient(config.url, config.publishableKey, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}});
+    const result = await client.auth.getSession();
+    if (result.error) toast('登录状态读取失败', humanError(result.error), 'error');
+    if (/type=recovery/.test(location.hash + '&' + location.search) && result.data.session) {
+      session = result.data.session;
+      authView = 'reset-password';
+      openCloudModal();
+    } else await handleSession(result.data.session, true);
     client.auth.onAuthStateChange(function (event, nextSession) {
-      if (event === 'PASSWORD_RECOVERY' || (recoveryIntent && nextSession)) {
-        setTimeout(function () { enterPasswordRecovery(nextSession, true); }, 0);
-        return;
-      }
-      if (authView === 'reset-password' && nextSession) {
+      if (event === 'PASSWORD_RECOVERY') {
         session = nextSession;
+        authView = 'reset-password';
+        setTimeout(function () { openCloudModal(); toast('请设置新密码', '邮箱验证已通过，请在这里输入并保存新密码。', 'success'); }, 0);
         return;
       }
       if ((session && session.access_token) === (nextSession && nextSession.access_token) && event === 'INITIAL_SESSION') return;
       setTimeout(function () { handleSession(nextSession, true); }, 0);
     });
-    const result = await client.auth.getSession();
-    if (result.error) toast('登录状态读取失败', humanError(result.error), 'error');
-    if ((recoveryIntent || authView === 'reset-password') && result.data.session) enterPasswordRecovery(result.data.session, false);
-    else if (recoveryIntent) {
-      recoveryIntent = false;
-      authView = 'login';
-      openCloudModal();
-      toast('恢复链接无效', '该链接可能已过期或已经使用，请重新点击“忘记密码？”申请恢复邮件。', 'error');
-    } else if (authView !== 'reset-password') await handleSession(result.data.session, true);
   }
 
   window.CloudSync = {

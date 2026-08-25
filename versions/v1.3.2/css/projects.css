@@ -1,0 +1,114 @@
+.project-tabs-bar {
+  height: 42px;
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  padding: 5px 12px 0;
+  background: #e9edf2;
+  border-top: 1px solid #cbd5e1;
+  overflow: hidden;
+}
+
+.project-tabs {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  min-width: 0;
+  max-width: 78%;
+  height: 37px;
+}
+
+.project-tab-wrapper {
+  height: 32px;
+  max-width: 250px;
+  display: flex;
+  align-items: stretch;
+  flex: 0 0 auto;
+  border: 1px solid #c7d0dc;
+  border-bottom-color: #aeb8c5;
+  border-radius: 6px 6px 0 0;
+  background: #f6f8fa;
+  overflow: hidden;
+}
+
+.project-tab-wrapper.active {
+  height: 36px;
+  background: #fff;
+  border-color: #8baee8;
+  border-bottom-color: #fff;
+  box-shadow: 0 -2px 6px #1e3a5f12;
+}
+
+.project-tab,
+.project-tab-more {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+}
+
+.project-tab {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 6px 6px 12px;
+  color: #526174;
+}
+
+.project-tab span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-tab small { flex: 0 0 auto; font-size: 10px; color: #8491a3; }
+.project-tab-wrapper.active .project-tab { color: #1d4ed8; font-weight: 700; }
+
+.project-tab-more {
+  width: 30px;
+  padding: 0;
+  color: #7b8796;
+  font-weight: 700;
+}
+
+.project-tab-more:hover { color: #1d4ed8; background: #e8f0ff; }
+
+.project-add-tab {
+  height: 32px;
+  width: 38px;
+  padding: 0;
+  border-radius: 5px 5px 0 0;
+  color: #2563eb;
+  font-size: 20px;
+  flex: 0 0 auto;
+}
+
+.project-tabs-hint {
+  margin-left: auto;
+  align-self: center;
+  color: #7b8796;
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.project-tab-popover {
+  position: fixed;
+  z-index: 1200;
+  display: none;
+  width: 184px;
+  padding: 7px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 30px #0f172a2b;
+}
+
+.project-tab-popover.open { display: grid; gap: 5px; }
+.project-tab-popover strong { padding: 6px 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #334155; }
+.project-tab-popover button { width: 100%; text-align: left; padding: 7px 9px; background: #fff; border-color: transparent; }
+.project-tab-popover button:hover:not(:disabled) { background: #eff6ff; border-color: #bfdbfe; }
+.project-menu-row { display: grid; grid-template-columns: 1fr 1fr; gap: 5px; }
+.project-menu-row button { text-align: center; }
+.project-tab-popover .danger-text { color: #c62828; }
+
+@media (max-width: 1300px) {
+  .project-tabs-hint { display: none; }
+  .project-tabs { max-width: calc(100% - 48px); }
+}

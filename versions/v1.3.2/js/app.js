@@ -1,8 +1,8 @@
 'use strict';
 
-const APP_VERSION = '1.3.3';
-const WORKSPACE_STORAGE_KEY = 'project-progress-manager-v1.3.3-workspace';
-const PREVIOUS_WORKSPACE_STORAGE_KEYS = ['project-progress-manager-v1.3.2-workspace','project-progress-manager-v1.3.1-workspace','project-progress-manager-v1.3.0-workspace'];
+const APP_VERSION = '1.3.2';
+const WORKSPACE_STORAGE_KEY = 'project-progress-manager-v1.3.2-workspace';
+const PREVIOUS_WORKSPACE_STORAGE_KEYS = ['project-progress-manager-v1.3.1-workspace','project-progress-manager-v1.3.0-workspace'];
 const LEGACY_STORAGE_KEY = 'project-progress-manager-v1.2.0';
 const WORKSPACE_KIND = 'project-category-workbook';
 const MAX_DEPTH = 4;
