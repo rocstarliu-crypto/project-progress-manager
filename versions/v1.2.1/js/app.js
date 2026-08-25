@@ -1,16 +1,12 @@
 'use strict';
 
-const APP_VERSION = '1.3.1';
-const WORKSPACE_STORAGE_KEY = 'project-progress-manager-v1.3.1-workspace';
-const PREVIOUS_WORKSPACE_STORAGE_KEY = 'project-progress-manager-v1.3.0-workspace';
-const LEGACY_STORAGE_KEY = 'project-progress-manager-v1.2.0';
-const WORKSPACE_KIND = 'project-category-workbook';
+const APP_VERSION = '1.2.1';
+const STORAGE_KEY = 'project-progress-manager-v1.2.0';
 const MAX_DEPTH = 4;
 const STATUS_OPTIONS = ['未开始', '进行中', '已完成', '延期', '完成但存在问题'];
 const STATUS_CLASS = {'未开始':'notstarted','进行中':'doing','已完成':'done','延期':'delay','完成但存在问题':'issue'};
 const TYPE_LABEL = {seq:'系统序号',text:'文本',number:'数字',select:'下拉菜单',checkbox:'复选框',status:'状态',progress:'进度'};
 
-let workspace;
 let state;
 let selectedIds = new Set();
 let undoStack = [];
@@ -21,8 +17,6 @@ let pendingImport = null;
 let editingColumnId = null;
 let pendingRenameColumnId = null;
 let pendingParentStatusId = null;
-let pendingProjectRenameId = null;
-let projectMenuTargetId = null;
 let dragTaskId = null;
 let dragPosition = null;
 let dragArmedId = null;
@@ -170,104 +164,25 @@ function normalizeState(raw) {
   return value;
 }
 
-function createEmptyState(columns) {
-  const value=normalizeState({version:2,appVersion:APP_VERSION,nextId:1,columns:columns||defaultColumns(),tasks:[],ui:{depth:4,chartVisible:true,panelWidth:58,filters:{status:[]},chartLinks:{}}});
-  if(columns)value.columns=columns;
-  return value;
-}
-
-function createDemoCategoryState(type,columns) {
-  const legal=[
-    {id:1,parentId:null,sort:1,expanded:true,name:'项目启动',detail:'明确项目目标、范围和总体要求',status:'进行中',progress:55,values:{}},
-    {id:2,parentId:1,sort:1,expanded:true,name:'需求确认',detail:'确认需求清单和验收标准',status:'已完成',progress:100,values:{}},
-    {id:3,parentId:1,sort:2,expanded:true,name:'实施计划',detail:'制定任务安排和阶段计划',status:'进行中',progress:65,values:{}},
-    {id:4,parentId:null,sort:2,expanded:true,name:'项目执行',detail:'按计划推进各项工作任务',status:'进行中',progress:40,values:{}},
-    {id:5,parentId:4,sort:1,expanded:true,name:'阶段成果检查',detail:'检查阶段成果和待解决事项',status:'进行中',progress:40,values:{}},
-    {id:6,parentId:null,sort:3,expanded:true,name:'验收交付',detail:'完成成果确认、交付和归档',status:'未开始',progress:0,values:{}}
-  ];
-  const finance=[
-    {id:1,parentId:null,sort:1,expanded:true,name:'前期准备',detail:'整理基础资料并确认工作边界',status:'进行中',progress:30,values:{}},
-    {id:2,parentId:1,sort:1,expanded:true,name:'资料整理',detail:'完成已有资料的分类和核对',status:'已完成',progress:100,values:{}},
-    {id:3,parentId:1,sort:2,expanded:true,name:'工作分工',detail:'明确各项任务和协作关系',status:'进行中',progress:45,values:{}},
-    {id:4,parentId:null,sort:2,expanded:true,name:'任务实施',detail:'推进主要工作并记录完成情况',status:'进行中',progress:25,values:{}},
-    {id:5,parentId:4,sort:1,expanded:true,name:'质量检查',detail:'检查任务质量并整理问题清单',status:'进行中',progress:25,values:{}},
-    {id:6,parentId:null,sort:3,expanded:true,name:'成果归档',detail:'整理最终成果和过程记录',status:'未开始',progress:0,values:{}}
-  ];
-  const tasks=type==='finance'?finance:legal;
-  const value=normalizeState({version:2,appVersion:APP_VERSION,nextId:tasks.length+1,columns:columns||defaultColumns(),tasks:tasks,ui:{depth:4,chartVisible:true,panelWidth:58,filters:{status:[]},chartLinks:{}}});
-  if(columns)value.columns=columns;
-  return value;
-}
-
-function createDefaultWorkspace() {
-  const columns=defaultColumns();
-  return {kind:WORKSPACE_KIND,version:2,appVersion:APP_VERSION,nextProjectId:3,activeProjectId:'project_1',columns:columns,projects:[
-    {id:'project_1',name:'项目一',state:createDemoCategoryState('legal',columns)},
-    {id:'project_2',name:'项目二',state:createDemoCategoryState('finance',columns)}
-  ]};
-}
-
-function mergedWorkspaceColumns(raw,projectsRaw) {
-  const sources=[];
-  if(Array.isArray(raw&&raw.columns))sources.push(raw.columns);
-  (projectsRaw||[]).forEach(function(project){const data=project&&(project.state||project.data);if(data&&Array.isArray(data.columns))sources.push(data.columns);});
-  const merged=[];const seen=new Set();
-  sources.forEach(function(columns){columns.forEach(function(column){const id=String(column&&column.id||'');if(!id||seen.has(id))return;seen.add(id);merged.push(column);});});
-  return normalizeState({tasks:[],columns:merged.length?merged:defaultColumns()}).columns;
-}
-
-function ensureProjectUsesSharedColumns(project) {
-  project.state.columns=workspace.columns;
-  project.state.tasks.forEach(function(task){
-    task.values=task.values&&typeof task.values==='object'?task.values:{};
-    workspace.columns.filter(function(column){return !column.system;}).forEach(function(column){if(!(column.id in task.values))task.values[column.id]=column.type==='checkbox'?false:'';});
-  });
-  workspace.columns.filter(function(column){return !column.system;}).forEach(function(column){
-    if(!project.state.ui.filters[column.id])project.state.ui.filters[column.id]=defaultCondition(column);
-    if(!project.state.ui.chartLinks[column.id])project.state.ui.chartLinks[column.id]=Object.assign({enabled:false},defaultCondition(column));
-  });
-}
-
-function applySharedColumnsToProjects() {workspace.projects.forEach(ensureProjectUsesSharedColumns);}
-
-function normalizeWorkspace(raw) {
-  if(raw&&raw.kind===WORKSPACE_KIND&&Array.isArray(raw.projects)&&raw.projects.length){
-    const sourceProjects=raw.projects.filter(Boolean);const columns=mergedWorkspaceColumns(raw,sourceProjects);
-    const projects=sourceProjects.map(function(project,index){const projectState=normalizeState(Object.assign({},project.state||project.data||{tasks:[]},{columns:columns}));projectState.columns=columns;return{id:String(project.id||('project_'+(index+1))),name:String(project.name||('项目类别 '+(index+1))).trim()||('项目类别 '+(index+1)),state:projectState};});
-    if(!projects.length)return createDefaultWorkspace();
-    const active=projects.some(function(project){return project.id===String(raw.activeProjectId);})?String(raw.activeProjectId):projects[0].id;
-    const result={kind:WORKSPACE_KIND,version:2,appVersion:APP_VERSION,nextProjectId:Math.max(Number(raw.nextProjectId)||projects.length+1,projects.length+1),activeProjectId:active,columns:columns,projects:projects};
-    const previous=workspace;workspace=result;applySharedColumnsToProjects();workspace=previous;return result;
-  }
-  if(raw&&Array.isArray(raw.tasks)){const columns=normalizeState(raw).columns;const projectState=normalizeState(Object.assign({},raw,{columns:columns}));projectState.columns=columns;const result={kind:WORKSPACE_KIND,version:2,appVersion:APP_VERSION,nextProjectId:2,activeProjectId:'project_1',columns:columns,projects:[{id:'project_1',name:'原项目',state:projectState}]};const previous=workspace;workspace=result;applySharedColumnsToProjects();workspace=previous;return result;}
-  return createDefaultWorkspace();
-}
-
-function loadLocalWorkspace() {
+function loadLocalState() {
   try {
-    const current=localStorage.getItem(WORKSPACE_STORAGE_KEY);if(current)return normalizeWorkspace(JSON.parse(current));
-    if(window.__LOCAL_WEB_INITIAL_STATE__)return normalizeWorkspace(window.__LOCAL_WEB_INITIAL_STATE__);
-    const previousWorkspace=localStorage.getItem(PREVIOUS_WORKSPACE_STORAGE_KEY);if(previousWorkspace)return normalizeWorkspace(JSON.parse(previousWorkspace));
-    const legacy=localStorage.getItem(LEGACY_STORAGE_KEY);if(legacy)return normalizeWorkspace(JSON.parse(legacy));
-  }catch(error){}
-  return createDefaultWorkspace();
+    const raw=localStorage.getItem(STORAGE_KEY);
+    if (raw) return normalizeState(JSON.parse(raw));
+    if (window.__LOCAL_WEB_INITIAL_STATE__) {
+      const initial=normalizeState(window.__LOCAL_WEB_INITIAL_STATE__);
+      try { localStorage.setItem(STORAGE_KEY,JSON.stringify(initial)); } catch(ignore) {}
+      return initial;
+    }
+    return createDefaultState();
+  } catch(error) {
+    return window.__LOCAL_WEB_INITIAL_STATE__?normalizeState(window.__LOCAL_WEB_INITIAL_STATE__):createDefaultState();
+  }
 }
 
-function activeProject(){return workspace.projects.find(function(project){return project.id===workspace.activeProjectId;})||workspace.projects[0];}
-function setCurrentState(nextState,adoptColumns){
-  const normalized=normalizeState(nextState);
-  if(adoptColumns){const imported=normalized.columns;const importedIds=new Set(imported.map(function(column){return column.id;}));workspace.columns=imported.concat(workspace.columns.filter(function(column){return !importedIds.has(column.id);}));}
-  normalized.columns=workspace.columns;
-  state=normalized;const project=activeProject();if(project)project.state=state;applySharedColumnsToProjects();
-}
 function serializeState() { return deepClone(state); }
-function serializeWorkspace(){
-  const project=activeProject();if(project)project.state=state;workspace.appVersion=APP_VERSION;workspace.version=2;applySharedColumnsToProjects();
-  const data=deepClone(workspace);data.projects.forEach(function(item){delete item.state.columns;});return data;
-}
 
 function saveLocal() {
-  try { localStorage.setItem(WORKSPACE_STORAGE_KEY,JSON.stringify(serializeWorkspace())); setSaveLabel('已自动保存'); }
+  try { localStorage.setItem(STORAGE_KEY,JSON.stringify(serializeState())); setSaveLabel('已自动保存'); }
   catch(error) { showToast('自动保存失败','浏览器存储不可用：'+error.message,'error'); }
   if (window.CloudSync && !window.CloudSync.isApplyingRemote()) window.CloudSync.scheduleSave();
 }
@@ -290,17 +205,17 @@ function showToast(title,detail,type) {
 }
 
 function pushUndo() {
-  undoStack.push(serializeWorkspace()); if (undoStack.length>60) undoStack.shift(); redoStack=[]; updateUndoButtons();
+  undoStack.push(serializeState()); if (undoStack.length>60) undoStack.shift(); redoStack=[]; updateUndoButtons();
 }
 
 function undo() {
   if (!undoStack.length) return showToast('无法撤销','当前没有可撤销的操作');
-  redoStack.push(serializeWorkspace()); workspace=normalizeWorkspace(undoStack.pop());state=activeProject().state;selectedIds.clear(); saveLocal(); renderAll(); updateStatus('已撤销'); updateUndoButtons();
+  redoStack.push(serializeState()); state=normalizeState(undoStack.pop()); selectedIds.clear(); saveLocal(); renderAll(); updateStatus('已撤销'); updateUndoButtons();
 }
 
 function redo() {
   if (!redoStack.length) return showToast('无法重做','当前没有可重做的操作');
-  undoStack.push(serializeWorkspace()); workspace=normalizeWorkspace(redoStack.pop());state=activeProject().state;selectedIds.clear(); saveLocal(); renderAll(); updateStatus('已重做'); updateUndoButtons();
+  undoStack.push(serializeState()); state=normalizeState(redoStack.pop()); selectedIds.clear(); saveLocal(); renderAll(); updateStatus('已重做'); updateUndoButtons();
 }
 
 function updateUndoButtons() { document.getElementById('btnUndo').disabled=!undoStack.length; document.getElementById('btnRedo').disabled=!redoStack.length; }
@@ -370,51 +285,8 @@ function chartLinkMatches(task) {
   return true;
 }
 
-function nextProjectCategoryId(){let id;do{id='project_'+workspace.nextProjectId++;}while(workspace.projects.some(function(project){return project.id===id;}));return id;}
-function projectNameExists(name,excludeId){const value=String(name||'').trim().toLowerCase();return workspace.projects.some(function(project){return project.id!==excludeId&&project.name.toLowerCase()===value;});}
-function uniqueProjectName(base){let name=String(base||'新项目类别').trim()||'新项目类别';let index=2;while(projectNameExists(name,null))name=String(base||'新项目类别').trim()+' ('+(index++)+')';return name;}
-function resetProjectInteraction(){selectedIds.clear();undoStack=[];redoStack=[];pendingImport=null;updateUndoButtons();}
-
-function switchProjectCategory(projectId){const project=workspace.projects.find(function(item){return item.id===projectId;});if(!project||project.id===workspace.activeProjectId)return;closeProjectTabMenu();workspace.activeProjectId=project.id;state=project.state;state.columns=workspace.columns;resetProjectInteraction();saveLocal();renderAll();updateStatus('已切换到项目“'+project.name+'”');}
-
-function renderProjectTabs(){
-  const root=document.getElementById('projectTabs');if(!root)return;root.innerHTML='';
-  workspace.projects.forEach(function(project){
-    const wrapper=document.createElement('div');wrapper.className='project-tab-wrapper'+(project.id===workspace.activeProjectId?' active':'');wrapper.dataset.projectId=project.id;
-    const button=document.createElement('button');button.className='project-tab';button.title='切换到“'+project.name+'”';
-    const name=document.createElement('span');name.textContent=project.name;const count=document.createElement('small');count.textContent=project.state.tasks.length+'项';button.append(name,count);button.addEventListener('click',function(){switchProjectCategory(project.id);});
-    const menu=document.createElement('button');menu.className='project-tab-more';menu.textContent='⋯';menu.title='改名、复制、移动或删除此项目';menu.setAttribute('aria-label','管理“'+project.name+'”');menu.addEventListener('click',function(event){event.stopPropagation();openProjectTabMenu(project.id,menu);});
-    wrapper.append(button,menu);root.appendChild(wrapper);
-  });
-  const active=root.querySelector('.project-tab-wrapper.active');if(active)requestAnimationFrame(function(){active.scrollIntoView({block:'nearest',inline:'nearest'});});
-}
-
-function openAddProjectCategory(){document.getElementById('projectCategoryName').value=uniqueProjectName('新项目');openModal('projectCategoryModal');setTimeout(function(){document.getElementById('projectCategoryName').select();},0);}
-
-function confirmAddProjectCategory(){const input=document.getElementById('projectCategoryName');const name=input.value.trim();if(!name)return showToast('不能创建项目','请输入项目名称。','error');if(projectNameExists(name,null))return showToast('不能创建项目','已经存在同名项目，请更换名称。','error');const project={id:nextProjectCategoryId(),name:name,state:createEmptyState(workspace.columns)};workspace.projects.push(project);workspace.activeProjectId=project.id;state=project.state;resetProjectInteraction();closeModal('projectCategoryModal');saveLocal();renderAll();showToast('项目已创建','已切换到“'+name+'”；使用与其他项目完全一致的表格结构。','success');updateStatus('已创建项目“'+name+'”');}
-
-function duplicateProjectCategory(projectId){const source=workspace.projects.find(function(project){return project.id===projectId;});if(!source)return;const copiedState=normalizeState(Object.assign({},deepClone(source.state),{columns:workspace.columns}));copiedState.columns=workspace.columns;const copy={id:nextProjectCategoryId(),name:uniqueProjectName(source.name+' 副本'),state:copiedState};const index=workspace.projects.indexOf(source);workspace.projects.splice(index+1,0,copy);workspace.activeProjectId=copy.id;state=copy.state;resetProjectInteraction();closeProjectTabMenu();saveLocal();renderAll();showToast('项目已复制','已复制“'+source.name+'”并切换到“'+copy.name+'”。','success');}
-
-function openProjectRename(projectId){const project=workspace.projects.find(function(item){return item.id===projectId;});if(!project)return;pendingProjectRenameId=projectId;document.getElementById('projectRenameName').value=project.name;closeProjectTabMenu();openModal('projectRenameModal');setTimeout(function(){document.getElementById('projectRenameName').select();},0);}
-
-function confirmProjectRename(){const project=workspace.projects.find(function(item){return item.id===pendingProjectRenameId;});const name=document.getElementById('projectRenameName').value.trim();if(!project)return closeModal('projectRenameModal');if(!name||projectNameExists(name,project.id))return showToast('项目名称未修改','名称不能为空，也不能与其他项目重复。','error');project.name=name;pendingProjectRenameId=null;closeModal('projectRenameModal');saveLocal();renderProjectTabs();updateStatus('项目名称已修改为“'+name+'”');}
-
-function moveProjectCategory(projectId,direction){const index=workspace.projects.findIndex(function(project){return project.id===projectId;});const target=index+direction;if(index<0||target<0||target>=workspace.projects.length)return;const temp=workspace.projects[index];workspace.projects[index]=workspace.projects[target];workspace.projects[target]=temp;closeProjectTabMenu();saveLocal();renderProjectTabs();updateStatus('项目标签顺序已调整');}
-
-function deleteProjectCategory(projectId){if(workspace.projects.length<=1)return showToast('不能删除','至少需要保留一个项目。','error');const index=workspace.projects.findIndex(function(project){return project.id===projectId;});if(index<0)return;const project=workspace.projects[index];if(!confirm('删除项目“'+project.name+'”会同时删除其中 '+project.state.tasks.length+' 项任务。是否继续？'))return;workspace.projects.splice(index,1);if(workspace.activeProjectId===projectId){const next=workspace.projects[Math.min(index,workspace.projects.length-1)];workspace.activeProjectId=next.id;state=next.state;resetProjectInteraction();}closeProjectTabMenu();saveLocal();renderAll();showToast('项目已删除','已删除“'+project.name+'”。','success');}
-
-function openProjectTabMenu(projectId,anchor){
-  const menu=document.getElementById('projectTabMenu');const project=workspace.projects.find(function(item){return item.id===projectId;});if(!menu||!project)return;
-  if(menu.classList.contains('open')&&projectMenuTargetId===projectId)return closeProjectTabMenu();
-  projectMenuTargetId=projectId;document.getElementById('projectMenuTitle').textContent=project.name;const index=workspace.projects.indexOf(project);
-  document.getElementById('projectMenuLeft').disabled=index===0;document.getElementById('projectMenuRight').disabled=index===workspace.projects.length-1;document.getElementById('projectMenuDelete').disabled=workspace.projects.length<=1;
-  menu.classList.add('open');menu.setAttribute('aria-hidden','false');const rect=anchor.getBoundingClientRect();const width=menu.offsetWidth||180;menu.style.left=Math.max(8,Math.min(window.innerWidth-width-8,rect.right-width))+'px';menu.style.bottom=(window.innerHeight-rect.top+4)+'px';
-}
-
-function closeProjectTabMenu(){const menu=document.getElementById('projectTabMenu');if(menu){menu.classList.remove('open');menu.setAttribute('aria-hidden','true');}projectMenuTargetId=null;}
-
 function renderAll() {
-  renderProjectTabs(); renderDepthButtons(); renderFilters(); renderAssociations(); renderDataViews(); renderWorkspace(); updateUndoButtons();
+  renderDepthButtons(); renderFilters(); renderAssociations(); renderDataViews(); renderWorkspace(); updateUndoButtons();
 }
 
 function renderDataViews() { const rows=visibleRows(); renderTable(rows); renderChart(rows); renderSummary(rows); }
@@ -611,7 +483,7 @@ function openColumnModal(columnId) {editingColumnId=columnId||null;const column=
 
 function toggleColumnOptions(){document.getElementById('columnOptionsWrap').classList.toggle('hidden',document.getElementById('columnType').value!=='select');}
 
-function saveColumn() {const name=document.getElementById('columnName').value.trim();const type=document.getElementById('columnType').value;if(!name)return showToast('不能保存列','请输入列名称。','error');const duplicate=workspace.columns.some(function(c){return c.id!==editingColumnId&&c.title.toLowerCase()===name.toLowerCase();});if(duplicate)return showToast('不能保存列','列名称“'+name+'”已经存在，请使用其他名称。','error');const options=document.getElementById('columnOptions').value.split(/\r?\n|,/).map(function(v){return v.trim();}).filter(Boolean).filter(function(v,i,a){return a.indexOf(v)===i;});if(type==='select'&&!options.length)return showToast('不能保存列','下拉菜单至少需要一个选项。','error');pushUndo();if(editingColumnId){const column=workspace.columns.find(function(c){return c.id===editingColumnId;});column.title=name;if(column.type==='select')column.options=options;}else{const id='custom_'+Date.now().toString(36);const column={id:id,title:name,type:type,width:type==='text'?170:140,visible:true,system:false,options:type==='select'?options:[]};workspace.columns.push(column);workspace.projects.forEach(function(project){project.state.tasks.forEach(function(task){task.values[id]=type==='checkbox'?false:'';});project.state.ui.filters[id]=defaultCondition(column);project.state.ui.chartLinks[id]=Object.assign({enabled:false},defaultCondition(column));});}applySharedColumnsToProjects();closeModal('columnModal');editingColumnId=null;markChanged('公共列已保存，所有项目标签已同步');renderAll();}
+function saveColumn() {const name=document.getElementById('columnName').value.trim();const type=document.getElementById('columnType').value;if(!name)return showToast('不能保存列','请输入列名称。','error');const duplicate=state.columns.some(function(c){return c.id!==editingColumnId&&c.title.toLowerCase()===name.toLowerCase();});if(duplicate)return showToast('不能保存列','列名称“'+name+'”已经存在，请使用其他名称。','error');const options=document.getElementById('columnOptions').value.split(/\r?\n|,/).map(function(v){return v.trim();}).filter(Boolean).filter(function(v,i,a){return a.indexOf(v)===i;});if(type==='select'&&!options.length)return showToast('不能保存列','下拉菜单至少需要一个选项。','error');pushUndo();if(editingColumnId){const column=state.columns.find(function(c){return c.id===editingColumnId;});column.title=name;if(column.type==='select')column.options=options;}else{const id='custom_'+Date.now().toString(36);state.columns.push({id:id,title:name,type:type,width:type==='text'?170:140,visible:true,system:false,options:type==='select'?options:[]});state.tasks.forEach(function(task){task.values[id]=type==='checkbox'?false:'';});state.ui.filters[id]=defaultCondition({type:type});state.ui.chartLinks[id]=Object.assign({enabled:false},defaultCondition({type:type}));}closeModal('columnModal');editingColumnId=null;markChanged('自定义列已保存，并已关联筛选区和状态图区');renderAll();}
 
 function renameColumnPrompt(columnId) {const column=state.columns.find(function(c){return c.id===columnId;});if(!column)return;pendingRenameColumnId=columnId;document.getElementById('renameColumnName').value=column.title;openModal('renameModal');setTimeout(function(){document.getElementById('renameColumnName').focus();document.getElementById('renameColumnName').select();},0);}
 
@@ -621,7 +493,7 @@ function openColumnManager() {renderColumnManager();openModal('manageColumnsModa
 
 function renderColumnManager() {const root=document.getElementById('columnManagerList');root.innerHTML='';state.columns.forEach(function(column){const row=document.createElement('div');row.className='column-manager-row';const grip=document.createElement('span');grip.className='grip';grip.textContent='⋮⋮';const name=document.createElement('input');name.type='text';name.value=column.title;name.addEventListener('change',function(){const next=name.value.trim();if(!next||state.columns.some(function(c){return c.id!==column.id&&c.title.toLowerCase()===next.toLowerCase();})){name.value=column.title;return showToast('列名未修改','列名称不能为空或重复。','error');}pushUndo();column.title=next;markChanged('列名称已修改');renderAll();renderColumnManager();});const type=document.createElement('small');type.textContent=TYPE_LABEL[column.type]||column.type;const width=document.createElement('span');width.textContent=column.width+' px';const visible=document.createElement('label');const check=document.createElement('input');check.type='checkbox';check.checked=column.visible!==false;check.disabled=!!column.required;check.addEventListener('change',function(){pushUndo();column.visible=check.checked;markChanged(check.checked?'列已显示':'列已隐藏，数据仍然保留');renderAll();renderColumnManager();});visible.append(check,document.createTextNode('显示'));const action=document.createElement('button');action.textContent=column.system?'改名':'编辑';action.addEventListener('click',function(){closeModal('manageColumnsModal');column.system?renameColumnPrompt(column.id):openColumnModal(column.id);});row.append(grip,name,type,width,visible,action);if(!column.system){const del=document.createElement('button');del.textContent='删除';del.addEventListener('click',function(){deleteColumn(column.id);});row.appendChild(del);row.style.gridTemplateColumns='34px 1.2fr 100px 90px 72px 64px 64px';}root.appendChild(row);});}
 
-function deleteColumn(columnId) {const column=workspace.columns.find(function(c){return c.id===columnId;});if(!column||column.system)return;if(!confirm('删除公共列“'+column.title+'”后，全部项目中的该列数据、筛选和状态图关联设置都会删除。是否继续？'))return;pushUndo();workspace.columns=workspace.columns.filter(function(c){return c.id!==columnId;});workspace.projects.forEach(function(project){project.state.columns=workspace.columns;project.state.tasks.forEach(function(task){delete task.values[columnId];});delete project.state.ui.filters[columnId];delete project.state.ui.chartLinks[columnId];});state=activeProject().state;markChanged('已从全部项目删除自定义列“'+column.title+'”');renderAll();renderColumnManager();}
+function deleteColumn(columnId) {const column=state.columns.find(function(c){return c.id===columnId;});if(!column||column.system)return;if(!confirm('删除“'+column.title+'”后，该列全部任务数据、筛选和状态图关联设置都会删除。是否继续？'))return;pushUndo();state.columns=state.columns.filter(function(c){return c.id!==columnId;});state.tasks.forEach(function(task){delete task.values[columnId];});delete state.ui.filters[columnId];delete state.ui.chartLinks[columnId];markChanged('已删除自定义列“'+column.title+'”');renderAll();renderColumnManager();}
 
 function startColumnResize(event,columnId,th,resizer) {event.preventDefault();event.stopPropagation();const column=state.columns.find(function(c){return c.id===columnId;});if(!column)return;const startX=event.clientX,startWidth=column.width,panel=document.getElementById('tablePanel'),panelRect=panel.getBoundingClientRect(),guide=document.getElementById('columnGuide'),guideText=document.getElementById('columnGuideText'),startRight=th.getBoundingClientRect().right-panelRect.left;resizer.classList.add('active');guide.classList.add('show');function move(e){const min=column.id==='seq'?55:(column.id==='name'||column.id==='detail'?120:75);const width=Math.round(clampNumber(startWidth+(e.clientX-startX),min,600));const col=document.querySelector('#tableCols col[data-column-id="'+columnId+'"]');if(col)col.style.width=width+'px';guide.style.left=(startRight+(width-startWidth))+'px';guideText.textContent=width+' px';}function up(e){document.removeEventListener('mousemove',move);document.removeEventListener('mouseup',up);resizer.classList.remove('active');guide.classList.remove('show');const min=column.id==='seq'?55:(column.id==='name'||column.id==='detail'?120:75);pushUndo();column.width=Math.round(clampNumber(startWidth+(e.clientX-startX),min,600));markChanged('列宽已调整为 '+column.width+' px');renderDataViews();}document.addEventListener('mousemove',move);document.addEventListener('mouseup',up);}
 
@@ -639,26 +511,25 @@ async function exportExcel() {
     sheet.views=[{state:'frozen',ySplit:1,xSplit:4}];sheet.getRow(1).font={bold:true,color:{argb:'FFFFFFFF'}};sheet.getRow(1).fill={type:'pattern',pattern:'solid',fgColor:{argb:'FF315B8A'}};sheet.getRow(1).alignment={vertical:'middle',horizontal:'center'};sheet.getRow(1).height=24;
     sheet.columns.forEach(function(column,index){if(index<4)column.width=[10,12,14,8][index];else{const config=exportColumns[index-4];column.width=Math.max(10,Math.min(80,Math.round(config.width/7)));}column.eachCell(function(cell){cell.border={top:{style:'thin',color:{argb:'FFD5DCE4'}},left:{style:'thin',color:{argb:'FFD5DCE4'}},bottom:{style:'thin',color:{argb:'FFD5DCE4'}},right:{style:'thin',color:{argb:'FFD5DCE4'}}};});});
     const config=workbook.addWorksheet('列配置');config.addRow(['字段ID','显示名称','类型','宽度(px)','选项(JSON)','是否显示','系统字段','顺序','版本']);state.columns.forEach(function(column,index){config.addRow([column.id,column.title,column.type,column.width,JSON.stringify(column.options||[]),column.visible!==false?'是':'否',column.system?'是':'否',index+1,APP_VERSION]);});config.getRow(1).font={bold:true};config.columns=[{width:24},{width:20},{width:14},{width:12},{width:38},{width:12},{width:12},{width:10},{width:12}];config.state='visible';
-    const project=activeProject();const buffer=await workbook.xlsx.writeBuffer();downloadBlob(new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),safeFileName(project?project.name:'项目进度')+'_'+dateStamp()+'.xlsx');updateStatus('当前项目的 Excel 已导出');showToast('导出成功','已导出当前项目“'+(project?project.name:'项目进度')+'”，包含“任务数据”和“列配置”。','success');
+    const buffer=await workbook.xlsx.writeBuffer();downloadBlob(new Blob([buffer],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),'项目进度_'+dateStamp()+'.xlsx');updateStatus('Excel 已导出');showToast('导出成功','已生成包含“任务数据”和“列配置”的 Excel 文件。','success');
   }catch(error){showToast('Excel 导出失败','原因：'+error.message+'。当前项目数据没有被修改。','error');updateStatus('Excel 导出失败');}
 }
 
 function downloadBlob(blob,fileName){const url=URL.createObjectURL(blob);const anchor=document.createElement('a');anchor.href=url;anchor.download=fileName;document.body.appendChild(anchor);anchor.click();anchor.remove();setTimeout(function(){URL.revokeObjectURL(url);},1000);}
 function dateStamp(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
-function safeFileName(name){return String(name||'项目进度').replace(/[\\/:*?"<>|]/g,'_').slice(0,60)||'项目进度';}
 
 const LOCAL_WEB_ASSETS = [
-  'index.html','css/style.css','css/cloud.css','css/projects.css','js/app.js','js/cloud-config.js','js/cloud.js',
+  'index.html','css/style.css','css/cloud.css','js/app.js','js/cloud-config.js','js/cloud.js',
   'libs/xlsx.full.min.js','libs/exceljs.min.js','libs/supabase.min.js'
 ];
 
 function localWebFolderName(){const d=new Date();return '项目进度管理-本地网页版-'+dateStamp()+'_'+String(d.getHours()).padStart(2,'0')+String(d.getMinutes()).padStart(2,'0')+String(d.getSeconds()).padStart(2,'0');}
-function safeStateScript(){return JSON.stringify(serializeWorkspace()).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/&/g,'\\u0026').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');}
+function safeStateScript(){return JSON.stringify(serializeState()).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/&/g,'\\u0026').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');}
 function injectLocalWebState(html){const marker='<script src="js/app.js"></script>';if(!html.includes(marker))throw new Error('网页入口中未找到应用脚本标记');const scriptEnd='</scr'+'ipt>';const injected='<script>window.__LOCAL_WEB_MODE__=true;window.__LOCAL_WEB_INITIAL_STATE__='+safeStateScript()+';'+scriptEnd+'\n  '+marker;return html.replace(marker,function(){return injected;});}
 async function fetchLocalWebAsset(path,asText){const response=await fetch(new URL(path,window.location.href).href,{cache:'no-store'});if(!response.ok)throw new Error('读取 '+path+' 失败（HTTP '+response.status+'）');return asText?response.text():response.arrayBuffer();}
 async function writeDirectoryFile(root,path,data){const parts=path.split('/');const fileName=parts.pop();let directory=root;for(const part of parts)directory=await directory.getDirectoryHandle(part,{create:true});const file=await directory.getFileHandle(fileName,{create:true});const writable=await file.createWritable();try{await writable.write(data);}finally{await writable.close();}}
-async function buildStandaloneLocalWeb(){let html=injectLocalWebState(await fetchLocalWebAsset('index.html',true));for(const path of ['css/style.css','css/cloud.css','css/projects.css']){const css=await fetchLocalWebAsset(path,true);const style='<style data-local-source="'+path+'">\n'+css+'\n</style>';html=html.replace('<link rel="stylesheet" href="'+path+'">',function(){return style;});}const scriptEnd='</scr'+'ipt>';for(const path of ['libs/xlsx.full.min.js','libs/exceljs.min.js','libs/supabase.min.js','js/app.js','js/cloud-config.js','js/cloud.js']){const code=(await fetchLocalWebAsset(path,true)).replace(/<\/script/gi,'<\\/script');const inline='<script data-local-source="'+path+'">\n'+code+'\n'+scriptEnd;html=html.replace('<script src="'+path+'"></script>',function(){return inline;});}return html;}
-async function saveStandaloneLocalWeb(){const html=await buildStandaloneLocalWeb();const fileName=localWebFolderName()+'.html';if(window.showSaveFilePicker){const handle=await window.showSaveFilePicker({suggestedName:fileName,types:[{description:'本地网页版',accept:{'text/html':['.html']}}]});const writable=await handle.createWritable();try{await writable.write(html);}finally{await writable.close();}}else downloadBlob(new Blob([html],{type:'text/html;charset=utf-8'}),fileName);showToast('本地网页版已保存','双击保存的 HTML 文件即可使用；全部项目类别和任务数据已经包含在文件中。','success');updateStatus('本地网页版已保存');}
+async function buildStandaloneLocalWeb(){let html=injectLocalWebState(await fetchLocalWebAsset('index.html',true));for(const path of ['css/style.css','css/cloud.css']){const css=await fetchLocalWebAsset(path,true);const style='<style data-local-source="'+path+'">\n'+css+'\n</style>';html=html.replace('<link rel="stylesheet" href="'+path+'">',function(){return style;});}const scriptEnd='</scr'+'ipt>';for(const path of ['libs/xlsx.full.min.js','libs/exceljs.min.js','libs/supabase.min.js','js/app.js','js/cloud-config.js','js/cloud.js']){const code=(await fetchLocalWebAsset(path,true)).replace(/<\/script/gi,'<\\/script');const inline='<script data-local-source="'+path+'">\n'+code+'\n'+scriptEnd;html=html.replace('<script src="'+path+'"></script>',function(){return inline;});}return html;}
+async function saveStandaloneLocalWeb(){const html=await buildStandaloneLocalWeb();const fileName=localWebFolderName()+'.html';if(window.showSaveFilePicker){const handle=await window.showSaveFilePicker({suggestedName:fileName,types:[{description:'本地网页版',accept:{'text/html':['.html']}}]});const writable=await handle.createWritable();try{await writable.write(html);}finally{await writable.close();}}else downloadBlob(new Blob([html],{type:'text/html;charset=utf-8'}),fileName);showToast('本地网页版已保存','双击保存的 HTML 文件即可使用；当前任务数据已经包含在文件中。','success');updateStatus('本地网页版已保存');}
 async function saveLocalWebVersion(){
   if(location.protocol==='file:')return showToast('当前已经是本地网页版','直接继续使用即可，任务会自动保存在当前浏览器中。','success');
   updateStatus('请选择保存位置');
@@ -667,8 +538,8 @@ async function saveLocalWebVersion(){
     const parent=await window.showDirectoryPicker({mode:'readwrite'});
     const folderName=localWebFolderName();const folder=await parent.getDirectoryHandle(folderName,{create:true});updateStatus('正在生成本地网页版…');
     for(const path of LOCAL_WEB_ASSETS){let content=await fetchLocalWebAsset(path,path==='index.html');if(path==='index.html')content=injectLocalWebState(content);await writeDirectoryFile(folder,path,content);}
-    await writeDirectoryFile(folder,'全部项目类别数据.gantt',JSON.stringify(serializeWorkspace(),null,2));
-    await writeDirectoryFile(folder,'使用说明.txt','项目进度管理 V'+APP_VERSION+' 多项目本地网页版\r\n\r\n1. 双击 index.html 即可打开。\r\n2. 底部标签用于切换项目；点击“＋”新增，点击标签右侧“⋯”改名、复制、移动或删除。\r\n3. 全部项目共用相同列结构，各项目任务内容互相独立。\r\n4. 全部项目和任务会自动保存在当前浏览器，也可保存为“全部项目类别数据.gantt”。\r\n5. Excel 导入、导出只处理当前项目。\r\n6. 云端登录与多人同步需要连接互联网。\r\n');
+    await writeDirectoryFile(folder,'当前项目数据.gantt',JSON.stringify(serializeState(),null,2));
+    await writeDirectoryFile(folder,'使用说明.txt','项目进度管理 V'+APP_VERSION+' 本地网页版\r\n\r\n1. 双击 index.html 即可打开。\r\n2. 任务修改会自动保存在当前浏览器。\r\n3. 当前项目数据已经随网页保存，并另存为“当前项目数据.gantt”。\r\n4. Excel 导入、导出和本地任务管理可直接使用。\r\n5. 云端登录与多人同步需要连接互联网。\r\n');
     showToast('本地网页版已保存','已生成文件夹“'+folderName+'”。双击其中的 index.html 即可使用。','success');updateStatus('本地网页版已保存');
   }catch(error){if(error&&error.name==='AbortError'){updateStatus('已取消保存本地网页版');return;}showToast('保存本地网页版失败','原因：'+(error&&error.message?error.message:'未知错误')+'。请使用最新版 Chrome 或 Edge，并重新选择有写入权限的文件夹。','error');updateStatus('保存本地网页版失败');}
 }
@@ -701,14 +572,14 @@ function parseWorkbook(workbook) {
 
 function renderImportPreview(result,fileName) {document.getElementById('importSummary').textContent='文件：'+fileName+'。识别到 '+result.count+' 项任务、'+result.customCount+' 个自定义列。确认后才会替换当前项目，取消不会修改任何数据。';const root=document.getElementById('importPreview');root.innerHTML='';const table=document.createElement('table');const thead=document.createElement('thead');const hr=document.createElement('tr');['序号','任务名称','具体内容','状态','进度'].forEach(function(h){const th=document.createElement('th');th.textContent=h;hr.appendChild(th);});thead.appendChild(hr);table.appendChild(thead);const body=document.createElement('tbody');const old=state;state=result.newState;const numbers=numberMap();result.preview.forEach(function(task){const tr=document.createElement('tr');[numbers.get(task.id),task.name,task.detail,effectiveStatus(task),effectiveProgress(task)+'%'].forEach(function(v){const td=document.createElement('td');td.textContent=v;tr.appendChild(td);});body.appendChild(tr);});state=old;table.appendChild(body);root.appendChild(table);}
 
-function confirmImport() {if(!pendingImport)return;pushUndo();setCurrentState(pendingImport.newState,true);pendingImport=null;selectedIds.clear();closeModal('importModal');markChanged('Excel 导入成功');renderAll();showToast('导入成功','已替换当前项目的任务；Excel 列结构已同步到全部项目标签。','success');}
+function confirmImport() {if(!pendingImport)return;pushUndo();state=pendingImport.newState;pendingImport=null;selectedIds.clear();closeModal('importModal');markChanged('Excel 导入成功');renderAll();showToast('导入成功','任务、自定义列、下拉选项和列宽已经恢复。','success');}
 
-async function saveProject(saveAs,silent) {const data=serializeWorkspace();if(window.electronAPI){try{const result=saveAs||!currentFilePath?await window.electronAPI.saveFileAs(data):await window.electronAPI.saveFile(currentFilePath,data);if(result.success){currentFilePath=result.filePath;setSaveLabel('已保存');if(!silent)showToast('项目类别工作簿已保存',result.filePath,'success');}else if(!result.canceled)showToast('保存失败','原因：'+(result.error||'未知错误'),'error');}catch(error){showToast('保存失败','原因：'+error.message,'error');}}else{downloadBlob(new Blob([JSON.stringify(data,null,2)],{type:'application/json'}),'项目类别工作簿_'+dateStamp()+'.gantt');setSaveLabel('已下载全部项目类别');}}
+async function saveProject(saveAs,silent) {if(window.electronAPI){try{const result=saveAs||!currentFilePath?await window.electronAPI.saveFileAs(serializeState()):await window.electronAPI.saveFile(currentFilePath,serializeState());if(result.success){currentFilePath=result.filePath;setSaveLabel('已保存');if(!silent)showToast('项目已保存',result.filePath,'success');}else if(!result.canceled)showToast('保存失败','原因：'+(result.error||'未知错误'),'error');}catch(error){showToast('保存失败','原因：'+error.message,'error');}}else{downloadBlob(new Blob([JSON.stringify(serializeState(),null,2)],{type:'application/json'}),'项目进度_'+dateStamp()+'.gantt');setSaveLabel('已下载项目文件');}}
 
 function openProject() {if(window.electronAPI){window.electronAPI.openFile().then(handleOpenedProject);}else{const input=document.createElement('input');input.type='file';input.accept='.gantt,.json';input.onchange=function(){const file=input.files[0];if(!file)return;const reader=new FileReader();reader.onload=function(){try{applyOpenedData(JSON.parse(reader.result),null,file.name);}catch(error){showToast('打开失败','项目文件不是有效数据：'+error.message,'error');}};reader.readAsText(file);};input.click();}}
 function handleOpenedProject(result){if(result&&result.success)applyOpenedData(result.data,result.filePath,result.fileName);else if(result&&!result.canceled)showToast('打开失败','原因：'+(result.error||'未知错误'),'error');}
-function applyOpenedData(data,path,name){workspace=normalizeWorkspace(data);state=activeProject().state;resetProjectInteraction();currentFilePath=path||null;selectedIds.clear();saveLocal();renderAll();showToast('项目工作簿已打开',name||'全部项目标签和数据已载入','success');}
-function newProject(){const project=activeProject();if(!confirm('清空当前项目“'+project.name+'”的全部任务吗？公共列结构和其他项目不会改变。'))return;pushUndo();setCurrentState(createEmptyState(workspace.columns),false);selectedIds.clear();markChanged('已清空当前项目“'+project.name+'”');renderAll();}
+function applyOpenedData(data,path,name){pushUndo();state=normalizeState(data);currentFilePath=path||null;selectedIds.clear();saveLocal();renderAll();showToast('项目已打开',name||'项目数据已载入','success');}
+function newProject(){if(!confirm('新建项目会清空当前页面内容。已保存的数据仍可通过项目文件或撤销恢复，是否继续？'))return;pushUndo();state=normalizeState({version:2,nextId:1,columns:defaultColumns(),tasks:[],ui:{depth:4,chartVisible:true,panelWidth:58,filters:{status:[]},chartLinks:{}}});currentFilePath=null;selectedIds.clear();markChanged('已新建空项目');renderAll();}
 
 function startPanelResize(event){event.preventDefault();const workspace=document.getElementById('workspace');const handle=document.getElementById('panelResize');handle.classList.add('dragging');function move(e){const rect=workspace.getBoundingClientRect();state.ui.panelWidth=Math.round(clampNumber((e.clientX-rect.left)/rect.width*100,35,76)*10)/10;document.getElementById('tablePanel').style.width=state.ui.panelWidth+'%';}function up(){document.removeEventListener('mousemove',move);document.removeEventListener('mouseup',up);handle.classList.remove('dragging');markChanged('已调整表格与状态图宽度');}document.addEventListener('mousemove',move);document.addEventListener('mouseup',up);}
 
@@ -721,17 +592,14 @@ function bindEvents() {
   document.querySelectorAll('.depth-btn').forEach(function(button){button.onclick=function(){setDepth(Number(button.dataset.depth));};});document.getElementById('btnExpandAll').onclick=expandAll;document.getElementById('btnCollapseAll').onclick=collapseAll;document.getElementById('btnClearFilters').onclick=clearFilters;
   document.getElementById('chartVisible').onchange=function(){pushUndo();state.ui.chartVisible=this.checked;markChanged(this.checked?'状态图已显示':'状态图已隐藏');renderWorkspace();};document.getElementById('panelResize').addEventListener('mousedown',startPanelResize);
   document.getElementById('excelInput').onchange=function(){if(this.files&&this.files[0])importExcelFile(this.files[0]);this.value='';};document.getElementById('btnConfirmImport').onclick=confirmImport;
-  document.getElementById('btnAddProjectCategory').onclick=openAddProjectCategory;document.getElementById('btnConfirmProjectCategory').onclick=confirmAddProjectCategory;document.getElementById('btnConfirmProjectRename').onclick=confirmProjectRename;
-  document.getElementById('projectMenuRename').onclick=function(){openProjectRename(projectMenuTargetId);};document.getElementById('projectMenuDuplicate').onclick=function(){duplicateProjectCategory(projectMenuTargetId);};document.getElementById('projectMenuLeft').onclick=function(){moveProjectCategory(projectMenuTargetId,-1);};document.getElementById('projectMenuRight').onclick=function(){moveProjectCategory(projectMenuTargetId,1);};document.getElementById('projectMenuDelete').onclick=function(){deleteProjectCategory(projectMenuTargetId);};
   document.querySelectorAll('[data-close]').forEach(function(button){button.addEventListener('click',function(){closeModal(button.dataset.close);});});document.querySelectorAll('.modal').forEach(function(modal){modal.addEventListener('mousedown',function(event){if(event.target===modal)closeModal(modal.id);});});
-  document.addEventListener('click',function(event){const menu=document.getElementById('projectTabMenu');if(menu.classList.contains('open')&&!menu.contains(event.target)&&!event.target.closest('.project-tab-more'))closeProjectTabMenu();});
-  document.addEventListener('keydown',function(event){if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'){event.preventDefault();event.shiftKey?redo():undo();}else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='y'){event.preventDefault();redo();}else if(event.key==='Escape'){closeProjectTabMenu();document.querySelectorAll('.modal.open').forEach(function(modal){closeModal(modal.id);});}});
+  document.addEventListener('keydown',function(event){if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='z'){event.preventDefault();event.shiftKey?redo():undo();}else if((event.ctrlKey||event.metaKey)&&event.key.toLowerCase()==='y'){event.preventDefault();redo();}else if(event.key==='Escape'){document.querySelectorAll('.modal.open').forEach(function(modal){closeModal(modal.id);});}});
   const tableScroll=document.getElementById('tableScroll'),chartScroll=document.getElementById('chartScroll');tableScroll.addEventListener('scroll',function(){if(scrollSyncing)return;scrollSyncing=true;chartScroll.scrollTop=tableScroll.scrollTop;scrollSyncing=false;});chartScroll.addEventListener('scroll',function(){if(scrollSyncing)return;scrollSyncing=true;tableScroll.scrollTop=chartScroll.scrollTop;scrollSyncing=false;});
 }
 
 function init() {
-  workspace=loadLocalWorkspace();state=activeProject().state;const batch=document.getElementById('batchStatus');const parentStatus=document.getElementById('parentStatusSelect');STATUS_OPTIONS.forEach(function(status){appendOption(batch,status,status);appendOption(parentStatus,status,status);});bindEvents();initElectronMenu();renderAll();updateStatus('准备就绪 — V'+APP_VERSION+' · '+activeProject().name);setSaveLabel('已自动保存');
-  window.ProjectProgressApp={getState:function(){return serializeWorkspace();},replaceState:function(nextState,message){workspace=normalizeWorkspace(nextState);state=activeProject().state;resetProjectInteraction();saveLocal();renderAll();updateStatus(message||'已载入云端项目工作簿');},showToast:showToast,setSaveLabel:setSaveLabel,updateStatus:updateStatus,effectiveStatus:function(id){return effectiveStatus(byId(id));},effectiveProgress:function(id){return effectiveProgress(byId(id));},numberMap:function(){return Object.fromEntries(numberMap());},visibleRows:function(){return visibleRows().map(function(r){return{id:r.task.id,context:r.context};});},reset:function(){setCurrentState(createEmptyState(workspace.columns),false);selectedIds.clear();saveLocal();renderAll();}};
+  state=loadLocalState();const batch=document.getElementById('batchStatus');const parentStatus=document.getElementById('parentStatusSelect');STATUS_OPTIONS.forEach(function(status){appendOption(batch,status,status);appendOption(parentStatus,status,status);});bindEvents();initElectronMenu();renderAll();updateStatus('准备就绪 — V'+APP_VERSION);setSaveLabel('已自动保存');
+  window.ProjectProgressApp={getState:function(){return deepClone(state);},replaceState:function(nextState,message){state=normalizeState(nextState);selectedIds.clear();saveLocal();renderAll();updateStatus(message||'已载入云端项目');},showToast:showToast,setSaveLabel:setSaveLabel,updateStatus:updateStatus,effectiveStatus:function(id){return effectiveStatus(byId(id));},effectiveProgress:function(id){return effectiveProgress(byId(id));},numberMap:function(){return Object.fromEntries(numberMap());},visibleRows:function(){return visibleRows().map(function(r){return{id:r.task.id,context:r.context};});},reset:function(){state=createDefaultState();selectedIds.clear();saveLocal();renderAll();}};
 }
 
 if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',init);else init();
