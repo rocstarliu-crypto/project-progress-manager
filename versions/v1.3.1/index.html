@@ -3,16 +3,15 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>项目进度管理 V1.3.2</title>
+  <title>项目进度管理 V1.3.1</title>
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/cloud.css">
   <link rel="stylesheet" href="css/projects.css">
-  <link rel="stylesheet" href="css/password-reset.css">
 </head>
 <body>
   <div id="app" class="app-shell">
     <header class="app-header">
-      <div class="brand"><span class="brand-mark">◆</span><span>项目进度管理</span><em>V1.3.2</em></div>
+      <div class="brand"><span class="brand-mark">◆</span><span>项目进度管理</span><em>V1.3.1</em></div>
       <nav class="menu-bar" aria-label="文件操作">
         <button id="btnNew">新建</button><button id="btnOpen">打开项目</button><button id="btnSave">保存</button><button id="btnSaveAs" title="选择文件夹，保存可独立打开的完整本地网页">保存本地网页版</button>
         <span class="toolbar-divider"></span>
@@ -102,20 +101,7 @@
         <div class="cloud-notice">当前仍会自动保存在本机。登录后，选中的项目才会同步到 Supabase。</div>
         <div class="cloud-auth-grid"><label>邮箱<input id="cloudEmail" type="email" autocomplete="username" placeholder="name@example.com"></label><label>密码<input id="cloudPassword" type="password" autocomplete="current-password" minlength="6" placeholder="至少 6 位"></label></div>
         <div class="cloud-actions"><button id="btnCloudRegister">注册账号</button><button id="btnCloudLogin" class="primary">登录</button></div>
-        <div class="cloud-link-row"><button id="btnCloudForgotPassword" class="cloud-link-button" type="button">忘记密码？</button></div>
         <p class="cloud-help">首次注册后如未自动登录，请到邮箱点击 Supabase 发来的确认链接，再返回这里登录。</p>
-      </section>
-      <section id="cloudPasswordResetView" class="cloud-view hidden">
-        <div class="cloud-notice">输入注册时使用的邮箱。若账号存在，系统会自动发送一封恢复邮件；您无需联系项目管理员，也无需提供旧密码。</div>
-        <div class="cloud-auth-grid"><label>注册邮箱<input id="cloudPasswordResetEmail" type="email" autocomplete="email" placeholder="name@example.com"></label></div>
-        <div class="cloud-actions"><button id="btnCloudBackToLogin" type="button">返回登录</button><button id="btnCloudSendPasswordReset" class="primary" type="button">发送恢复邮件</button></div>
-        <p class="cloud-help">请打开邮件中的“恢复密码”链接。链接会回到本网页，由您自行设置新密码。</p>
-      </section>
-      <section id="cloudNewPasswordView" class="cloud-view hidden">
-        <div class="cloud-notice">邮箱验证已通过。请设置新密码；项目管理员不会收到、查看或保存您的密码。</div>
-        <div class="cloud-auth-grid"><label>新密码<input id="cloudNewPassword" type="password" autocomplete="new-password" minlength="6" placeholder="至少 6 位"></label><label>确认新密码<input id="cloudNewPasswordConfirm" type="password" autocomplete="new-password" minlength="6" placeholder="再次输入新密码"></label></div>
-        <div class="cloud-actions"><button id="btnCloudUpdatePassword" class="primary" type="button">保存新密码</button></div>
-        <p class="cloud-help">保存后新密码立即生效，您可以继续使用云端协作功能。</p>
       </section>
       <section id="cloudProjectsView" class="cloud-view hidden">
         <div class="cloud-account-row"><div><span>当前账号</span><strong id="cloudAccountEmail"></strong></div><button id="btnRefreshProjects">刷新项目</button></div>

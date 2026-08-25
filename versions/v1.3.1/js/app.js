@@ -1,8 +1,8 @@
 'use strict';
 
-const APP_VERSION = '1.3.2';
-const WORKSPACE_STORAGE_KEY = 'project-progress-manager-v1.3.2-workspace';
-const PREVIOUS_WORKSPACE_STORAGE_KEYS = ['project-progress-manager-v1.3.1-workspace','project-progress-manager-v1.3.0-workspace'];
+const APP_VERSION = '1.3.1';
+const WORKSPACE_STORAGE_KEY = 'project-progress-manager-v1.3.1-workspace';
+const PREVIOUS_WORKSPACE_STORAGE_KEY = 'project-progress-manager-v1.3.0-workspace';
 const LEGACY_STORAGE_KEY = 'project-progress-manager-v1.2.0';
 const WORKSPACE_KIND = 'project-category-workbook';
 const MAX_DEPTH = 4;
@@ -247,7 +247,7 @@ function loadLocalWorkspace() {
   try {
     const current=localStorage.getItem(WORKSPACE_STORAGE_KEY);if(current)return normalizeWorkspace(JSON.parse(current));
     if(window.__LOCAL_WEB_INITIAL_STATE__)return normalizeWorkspace(window.__LOCAL_WEB_INITIAL_STATE__);
-    for(const previousKey of PREVIOUS_WORKSPACE_STORAGE_KEYS){const previousWorkspace=localStorage.getItem(previousKey);if(previousWorkspace)return normalizeWorkspace(JSON.parse(previousWorkspace));}
+    const previousWorkspace=localStorage.getItem(PREVIOUS_WORKSPACE_STORAGE_KEY);if(previousWorkspace)return normalizeWorkspace(JSON.parse(previousWorkspace));
     const legacy=localStorage.getItem(LEGACY_STORAGE_KEY);if(legacy)return normalizeWorkspace(JSON.parse(legacy));
   }catch(error){}
   return createDefaultWorkspace();

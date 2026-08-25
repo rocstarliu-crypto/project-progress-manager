@@ -6,7 +6,6 @@
   let app = null;
   let client = null;
   let session = null;
-  let authView = 'login';
   let projects = [];
   let currentProject = null;
   let currentRevision = 0;
@@ -21,7 +20,7 @@
   const byId = function (id) { return document.getElementById(id); };
 
   function cacheElements() {
-    ['cloudConnection','btnCloudProject','cloudUser','btnCloudLogout','cloudModal','cloudAuthView','cloudPasswordResetView','cloudNewPasswordView','cloudProjectsView','cloudEmail','cloudPassword','btnCloudRegister','btnCloudLogin','btnCloudForgotPassword','cloudPasswordResetEmail','btnCloudSendPasswordReset','btnCloudBackToLogin','cloudNewPassword','cloudNewPasswordConfirm','btnCloudUpdatePassword','cloudAccountEmail','btnRefreshProjects','cloudCurrentProject','cloudCurrentProjectName','cloudShareCode','btnCopyShareCode','cloudProjectSelect','cloudNewProjectName','btnCreateCloudProject','cloudJoinCode','btnJoinCloudProject','cloudActivity'].forEach(function (id) { el[id] = byId(id); });
+    ['cloudConnection','btnCloudProject','cloudUser','btnCloudLogout','cloudModal','cloudAuthView','cloudProjectsView','cloudEmail','cloudPassword','btnCloudRegister','btnCloudLogin','cloudAccountEmail','btnRefreshProjects','cloudCurrentProject','cloudCurrentProjectName','cloudShareCode','btnCopyShareCode','cloudProjectSelect','cloudNewProjectName','btnCreateCloudProject','cloudJoinCode','btnJoinCloudProject','cloudActivity'].forEach(function (id) { el[id] = byId(id); });
   }
 
   function toast(title, detail, type) { if (app && app.showToast) app.showToast(title, detail, type); }
@@ -44,8 +43,6 @@
     if (/Email not confirmed/i.test(message)) return '邮箱尚未确认，请先打开确认邮件中的链接。';
     if (/User already registered/i.test(message)) return '该邮箱已经注册，请直接登录。';
     if (/Password should be/i.test(message)) return '密码长度不足，请至少输入 6 位。';
-    if (/Email rate limit exceeded|rate limit/i.test(message)) return '邮件发送过于频繁，请稍后再试。';
-    if (/redirect/i.test(message)) return '恢复链接地址未获允许。请在 Supabase 的 URL Configuration 中加入当前网站地址。';
     if (/SHARE_CODE_NOT_FOUND/i.test(message)) return '没有找到该共享码，请让项目所有者重新复制。';
     if (/NOT_AUTHENTICATED/i.test(message)) return '登录状态已失效，请重新登录。';
     if (/NOT_AUTHORIZED/i.test(message)) return '当前账号没有编辑这个项目的权限。';
@@ -54,18 +51,10 @@
 
   function renderAccountState() {
     const loggedIn = Boolean(session && session.user);
-    const resetting = authView === 'reset-password';
-    el.cloudAuthView.classList.toggle('hidden', loggedIn || authView !== 'login');
-    el.cloudPasswordResetView.classList.toggle('hidden', loggedIn || authView !== 'reset-request');
-    el.cloudNewPasswordView.classList.toggle('hidden', !resetting);
-    el.cloudProjectsView.classList.toggle('hidden', !loggedIn || resetting);
+    el.cloudAuthView.classList.toggle('hidden', loggedIn);
+    el.cloudProjectsView.classList.toggle('hidden', !loggedIn);
     el.cloudUser.classList.toggle('hidden', !loggedIn);
-    el.btnCloudLogout.classList.toggle('hidden', !loggedIn || resetting);
-    if (resetting) {
-      el.btnCloudProject.textContent = '设置新密码';
-      setConnection('signed-in', '设置新密码');
-      return;
-    }
+    el.btnCloudLogout.classList.toggle('hidden', !loggedIn);
     if (!loggedIn) {
       el.cloudUser.textContent = '';
       el.btnCloudProject.textContent = '登录云端';
@@ -254,55 +243,6 @@
     finally { setBusy(el.btnCloudLogin, false); }
   }
 
-  function openPasswordResetRequest() {
-    authView = 'reset-request';
-    el.cloudPasswordResetEmail.value = el.cloudEmail.value.trim();
-    renderAccountState();
-    el.cloudPasswordResetEmail.focus();
-  }
-
-  function backToLogin() {
-    authView = 'login';
-    renderAccountState();
-    el.cloudEmail.focus();
-  }
-
-  function passwordRedirectUrl() { return location.origin + location.pathname; }
-
-  async function sendPasswordReset() {
-    const email = el.cloudPasswordResetEmail.value.trim();
-    if (!email) return toast('无法发送恢复邮件', '请填写注册邮箱。', 'error');
-    setBusy(el.btnCloudSendPasswordReset, true, '正在发送…');
-    try {
-      const result = await client.auth.resetPasswordForEmail(email, {redirectTo:passwordRedirectUrl()});
-      if (result.error) throw result.error;
-      el.cloudEmail.value = email;
-      authView = 'login';
-      renderAccountState();
-      toast('恢复邮件已发送', '如该邮箱已注册，请打开邮件中的恢复链接，然后在本网页设置新密码。', 'success');
-    } catch (error) { toast('发送恢复邮件失败', humanError(error), 'error'); }
-    finally { setBusy(el.btnCloudSendPasswordReset, false); }
-  }
-
-  async function updatePassword() {
-    const password = el.cloudNewPassword.value;
-    const confirmation = el.cloudNewPasswordConfirm.value;
-    if (password.length < 6) return toast('无法设置新密码', '新密码至少需要 6 位。', 'error');
-    if (password !== confirmation) return toast('无法设置新密码', '两次输入的密码不一致，请重新输入。', 'error');
-    setBusy(el.btnCloudUpdatePassword, true, '正在保存…');
-    try {
-      const result = await client.auth.updateUser({password:password});
-      if (result.error) throw result.error;
-      el.cloudNewPassword.value = '';
-      el.cloudNewPasswordConfirm.value = '';
-      authView = 'login';
-      if (location.hash) history.replaceState(null, document.title, location.pathname + location.search);
-      renderAccountState();
-      toast('密码已更新', '新密码已经生效。你已保持登录状态，可以继续使用云端协作。', 'success');
-    } catch (error) { toast('设置新密码失败', humanError(error), 'error'); }
-    finally { setBusy(el.btnCloudUpdatePassword, false); }
-  }
-
   async function logout() {
     if (dirty && !confirm('当前仍有等待同步的修改，确定退出云端账号吗？本机副本会继续保留。')) return;
     await client.auth.signOut();
@@ -349,10 +289,6 @@
     el.btnCloudLogout.addEventListener('click', logout);
     el.btnCloudRegister.addEventListener('click', register);
     el.btnCloudLogin.addEventListener('click', login);
-    el.btnCloudForgotPassword.addEventListener('click', openPasswordResetRequest);
-    el.btnCloudSendPasswordReset.addEventListener('click', sendPasswordReset);
-    el.btnCloudBackToLogin.addEventListener('click', backToLogin);
-    el.btnCloudUpdatePassword.addEventListener('click', updatePassword);
     el.btnRefreshProjects.addEventListener('click', function () { refreshProjects(false).catch(function (error) { toast('刷新失败', humanError(error), 'error'); }); });
     el.cloudProjectSelect.addEventListener('change', function () { if (this.value) selectProject(this.value, false).catch(function (error) { toast('载入失败', humanError(error), 'error'); }); });
     el.btnCreateCloudProject.addEventListener('click', createProject);
@@ -389,18 +325,8 @@
     client = window.supabase.createClient(config.url, config.publishableKey, {auth:{persistSession:true, autoRefreshToken:true, detectSessionInUrl:true}});
     const result = await client.auth.getSession();
     if (result.error) toast('登录状态读取失败', humanError(result.error), 'error');
-    if (/type=recovery/.test(location.hash + '&' + location.search) && result.data.session) {
-      session = result.data.session;
-      authView = 'reset-password';
-      openCloudModal();
-    } else await handleSession(result.data.session, true);
+    await handleSession(result.data.session, true);
     client.auth.onAuthStateChange(function (event, nextSession) {
-      if (event === 'PASSWORD_RECOVERY') {
-        session = nextSession;
-        authView = 'reset-password';
-        setTimeout(function () { openCloudModal(); toast('请设置新密码', '邮箱验证已通过，请在这里输入并保存新密码。', 'success'); }, 0);
-        return;
-      }
       if ((session && session.access_token) === (nextSession && nextSession.access_token) && event === 'INITIAL_SESSION') return;
       setTimeout(function () { handleSession(nextSession, true); }, 0);
     });
