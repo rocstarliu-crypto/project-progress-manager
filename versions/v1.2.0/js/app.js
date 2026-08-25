@@ -1,6 +1,6 @@
 'use strict';
 
-const APP_VERSION = '1.2.1';
+const APP_VERSION = '1.2.0';
 const STORAGE_KEY = 'project-progress-manager-v1.2.0';
 const MAX_DEPTH = 4;
 const STATUS_OPTIONS = ['未开始', '进行中', '已完成', '延期', '完成但存在问题'];
@@ -165,18 +165,8 @@ function normalizeState(raw) {
 }
 
 function loadLocalState() {
-  try {
-    const raw=localStorage.getItem(STORAGE_KEY);
-    if (raw) return normalizeState(JSON.parse(raw));
-    if (window.__LOCAL_WEB_INITIAL_STATE__) {
-      const initial=normalizeState(window.__LOCAL_WEB_INITIAL_STATE__);
-      try { localStorage.setItem(STORAGE_KEY,JSON.stringify(initial)); } catch(ignore) {}
-      return initial;
-    }
-    return createDefaultState();
-  } catch(error) {
-    return window.__LOCAL_WEB_INITIAL_STATE__?normalizeState(window.__LOCAL_WEB_INITIAL_STATE__):createDefaultState();
-  }
+  try { const raw=localStorage.getItem(STORAGE_KEY); return raw?normalizeState(JSON.parse(raw)):createDefaultState(); }
+  catch(error) { return createDefaultState(); }
 }
 
 function serializeState() { return deepClone(state); }
@@ -436,7 +426,7 @@ function appendAssociationControl(root,column,link) {
 function setDepth(depth) {pushUndo();state.ui.depth=clampNumber(depth,1,4);state.tasks.forEach(function(task){task.expanded=taskDepth(task.id)<state.ui.depth;});markChanged('已展开到 '+state.ui.depth+' 级');renderAll();}
 function expandAll() {pushUndo();state.ui.depth=4;state.tasks.forEach(function(t){t.expanded=true;});markChanged('已全部展开');renderAll();}
 function collapseAll() {pushUndo();state.ui.depth=1;state.tasks.forEach(function(t){t.expanded=false;});markChanged('已全部收起，仅显示一级任务');renderAll();}
-function toggleBranch(id) {const task=byId(id);if(!task||!hasChildren(id))return;pushUndo();const opening=!task.expanded;task.expanded=opening;if(opening){const childDepth=Math.min(MAX_DEPTH,taskDepth(task.id)+1);state.ui.depth=Math.max(state.ui.depth,childDepth);}markChanged(opening?'已展开当前任务，并显示到 '+state.ui.depth+' 级':'已收起当前任务');renderAll();}
+function toggleBranch(id) {const task=byId(id);if(!task||!hasChildren(id))return;pushUndo();task.expanded=!task.expanded;markChanged(task.expanded?'已展开当前任务':'已收起当前任务');renderDataViews();}
 
 function selectBranch(id,checked) {const ids=[id].concat(descendantsOf(id).map(function(t){return t.id;}));ids.forEach(function(taskId){if(checked)selectedIds.add(taskId);else selectedIds.delete(taskId);});}
 
@@ -518,32 +508,6 @@ async function exportExcel() {
 function downloadBlob(blob,fileName){const url=URL.createObjectURL(blob);const anchor=document.createElement('a');anchor.href=url;anchor.download=fileName;document.body.appendChild(anchor);anchor.click();anchor.remove();setTimeout(function(){URL.revokeObjectURL(url);},1000);}
 function dateStamp(){const d=new Date();return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 
-const LOCAL_WEB_ASSETS = [
-  'index.html','css/style.css','css/cloud.css','js/app.js','js/cloud-config.js','js/cloud.js',
-  'libs/xlsx.full.min.js','libs/exceljs.min.js','libs/supabase.min.js'
-];
-
-function localWebFolderName(){const d=new Date();return '项目进度管理-本地网页版-'+dateStamp()+'_'+String(d.getHours()).padStart(2,'0')+String(d.getMinutes()).padStart(2,'0')+String(d.getSeconds()).padStart(2,'0');}
-function safeStateScript(){return JSON.stringify(serializeState()).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/&/g,'\\u0026').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029');}
-function injectLocalWebState(html){const marker='<script src="js/app.js"></script>';if(!html.includes(marker))throw new Error('网页入口中未找到应用脚本标记');const scriptEnd='</scr'+'ipt>';const injected='<script>window.__LOCAL_WEB_MODE__=true;window.__LOCAL_WEB_INITIAL_STATE__='+safeStateScript()+';'+scriptEnd+'\n  '+marker;return html.replace(marker,function(){return injected;});}
-async function fetchLocalWebAsset(path,asText){const response=await fetch(new URL(path,window.location.href).href,{cache:'no-store'});if(!response.ok)throw new Error('读取 '+path+' 失败（HTTP '+response.status+'）');return asText?response.text():response.arrayBuffer();}
-async function writeDirectoryFile(root,path,data){const parts=path.split('/');const fileName=parts.pop();let directory=root;for(const part of parts)directory=await directory.getDirectoryHandle(part,{create:true});const file=await directory.getFileHandle(fileName,{create:true});const writable=await file.createWritable();try{await writable.write(data);}finally{await writable.close();}}
-async function buildStandaloneLocalWeb(){let html=injectLocalWebState(await fetchLocalWebAsset('index.html',true));for(const path of ['css/style.css','css/cloud.css']){const css=await fetchLocalWebAsset(path,true);const style='<style data-local-source="'+path+'">\n'+css+'\n</style>';html=html.replace('<link rel="stylesheet" href="'+path+'">',function(){return style;});}const scriptEnd='</scr'+'ipt>';for(const path of ['libs/xlsx.full.min.js','libs/exceljs.min.js','libs/supabase.min.js','js/app.js','js/cloud-config.js','js/cloud.js']){const code=(await fetchLocalWebAsset(path,true)).replace(/<\/script/gi,'<\\/script');const inline='<script data-local-source="'+path+'">\n'+code+'\n'+scriptEnd;html=html.replace('<script src="'+path+'"></script>',function(){return inline;});}return html;}
-async function saveStandaloneLocalWeb(){const html=await buildStandaloneLocalWeb();const fileName=localWebFolderName()+'.html';if(window.showSaveFilePicker){const handle=await window.showSaveFilePicker({suggestedName:fileName,types:[{description:'本地网页版',accept:{'text/html':['.html']}}]});const writable=await handle.createWritable();try{await writable.write(html);}finally{await writable.close();}}else downloadBlob(new Blob([html],{type:'text/html;charset=utf-8'}),fileName);showToast('本地网页版已保存','双击保存的 HTML 文件即可使用；当前任务数据已经包含在文件中。','success');updateStatus('本地网页版已保存');}
-async function saveLocalWebVersion(){
-  if(location.protocol==='file:')return showToast('当前已经是本地网页版','直接继续使用即可，任务会自动保存在当前浏览器中。','success');
-  updateStatus('请选择保存位置');
-  try{
-    if(!window.showDirectoryPicker){await saveStandaloneLocalWeb();return;}
-    const parent=await window.showDirectoryPicker({mode:'readwrite'});
-    const folderName=localWebFolderName();const folder=await parent.getDirectoryHandle(folderName,{create:true});updateStatus('正在生成本地网页版…');
-    for(const path of LOCAL_WEB_ASSETS){let content=await fetchLocalWebAsset(path,path==='index.html');if(path==='index.html')content=injectLocalWebState(content);await writeDirectoryFile(folder,path,content);}
-    await writeDirectoryFile(folder,'当前项目数据.gantt',JSON.stringify(serializeState(),null,2));
-    await writeDirectoryFile(folder,'使用说明.txt','项目进度管理 V'+APP_VERSION+' 本地网页版\r\n\r\n1. 双击 index.html 即可打开。\r\n2. 任务修改会自动保存在当前浏览器。\r\n3. 当前项目数据已经随网页保存，并另存为“当前项目数据.gantt”。\r\n4. Excel 导入、导出和本地任务管理可直接使用。\r\n5. 云端登录与多人同步需要连接互联网。\r\n');
-    showToast('本地网页版已保存','已生成文件夹“'+folderName+'”。双击其中的 index.html 即可使用。','success');updateStatus('本地网页版已保存');
-  }catch(error){if(error&&error.name==='AbortError'){updateStatus('已取消保存本地网页版');return;}showToast('保存本地网页版失败','原因：'+(error&&error.message?error.message:'未知错误')+'。请使用最新版 Chrome 或 Edge，并重新选择有写入权限的文件夹。','error');updateStatus('保存本地网页版失败');}
-}
-
 function importExcelFile(file) {
   if(typeof XLSX==='undefined')return showToast('导入失败','Excel 读取组件没有加载，请确认 libs/xlsx.full.min.js 文件存在。','error');
   const reader=new FileReader();reader.onload=function(event){try{const workbook=XLSX.read(new Uint8Array(event.target.result),{type:'array'});pendingImport=parseWorkbook(workbook);renderImportPreview(pendingImport,file.name);openModal('importModal');}catch(error){pendingImport=null;showToast('Excel 导入校验失败',error.message+'。原项目数据保持不变。','error');updateStatus('Excel 导入失败');}};reader.onerror=function(){showToast('Excel 读取失败','浏览器无法读取所选文件，请检查文件权限或重新选择。','error');};reader.readAsArrayBuffer(file);
@@ -586,7 +550,7 @@ function startPanelResize(event){event.preventDefault();const workspace=document
 function initElectronMenu() {if(!window.electronAPI)return;window.electronAPI.onMenuNew(newProject);window.electronAPI.onMenuOpen(openProject);window.electronAPI.onMenuSave(function(){saveProject(false,false);});window.electronAPI.onMenuSaveAs(function(){saveProject(true,false);});window.electronAPI.onMenuOpenFile(function(path){window.electronAPI.openFileByPath(path).then(handleOpenedProject);});window.electronAPI.onMenuImport(function(){document.getElementById('excelInput').click();});window.electronAPI.onMenuExport(exportExcel);window.electronAPI.onMenuAddTask(addRootTask);window.electronAPI.onMenuAddChild(function(){const roots=selectedRootTasks();if(roots.length===1)addChildTask(roots[0].id);else showToast('请选择一个父任务','也可以直接点击任务行中的“＋”。');});window.electronAPI.onMenuDelete(deleteSelected);window.electronAPI.onMenuExpand(expandAll);window.electronAPI.onMenuCollapse(collapseAll);if(window.electronAPI.onMenuToggleChart)window.electronAPI.onMenuToggleChart(function(){pushUndo();state.ui.chartVisible=!state.ui.chartVisible;markChanged(state.ui.chartVisible?'状态图已显示':'状态图已隐藏');renderWorkspace();});window.electronAPI.onMenuUndo(undo);window.electronAPI.onMenuRedo(redo);}
 
 function bindEvents() {
-  document.getElementById('btnNew').onclick=newProject;document.getElementById('btnOpen').onclick=openProject;document.getElementById('btnSave').onclick=function(){saveProject(false,false);};document.getElementById('btnSaveAs').onclick=saveLocalWebVersion;document.getElementById('btnImport').onclick=function(){document.getElementById('excelInput').click();};document.getElementById('btnExport').onclick=exportExcel;
+  document.getElementById('btnNew').onclick=newProject;document.getElementById('btnOpen').onclick=openProject;document.getElementById('btnSave').onclick=function(){saveProject(false,false);};document.getElementById('btnSaveAs').onclick=function(){saveProject(true,false);};document.getElementById('btnImport').onclick=function(){document.getElementById('excelInput').click();};document.getElementById('btnExport').onclick=exportExcel;
   document.getElementById('btnAddRoot').onclick=addRootTask;document.getElementById('btnDelete').onclick=deleteSelected;document.getElementById('btnPromote').onclick=promoteSelected;document.getElementById('btnDemote').onclick=demoteSelected;document.getElementById('btnMoveUp').onclick=function(){moveSelection(-1);};document.getElementById('btnMoveDown').onclick=function(){moveSelection(1);};document.getElementById('btnMoveTo').onclick=openMoveModal;document.getElementById('btnConfirmMove').onclick=confirmMoveSelected;document.getElementById('batchStatus').addEventListener('change',function(){batchSetStatus(this.value);});
   document.getElementById('btnAddColumn').onclick=function(){openColumnModal(null);};document.getElementById('btnManageColumns').onclick=openColumnManager;document.getElementById('btnSaveColumn').onclick=saveColumn;document.getElementById('columnType').onchange=toggleColumnOptions;document.getElementById('btnConfirmRename').onclick=confirmRenameColumn;document.getElementById('btnConfirmParentStatus').onclick=confirmParentStatus;document.getElementById('btnUndo').onclick=undo;document.getElementById('btnRedo').onclick=redo;
   document.querySelectorAll('.depth-btn').forEach(function(button){button.onclick=function(){setDepth(Number(button.dataset.depth));};});document.getElementById('btnExpandAll').onclick=expandAll;document.getElementById('btnCollapseAll').onclick=collapseAll;document.getElementById('btnClearFilters').onclick=clearFilters;
