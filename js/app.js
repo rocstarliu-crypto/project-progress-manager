@@ -1,13 +1,15 @@
 'use strict';
 
-const APP_VERSION = '1.3.3';
-const WORKSPACE_STORAGE_KEY = 'project-progress-manager-v1.3.3-workspace';
-const PREVIOUS_WORKSPACE_STORAGE_KEYS = ['project-progress-manager-v1.3.2-workspace','project-progress-manager-v1.3.1-workspace','project-progress-manager-v1.3.0-workspace'];
+const APP_VERSION = '1.4.1';
+const WORKSPACE_STORAGE_KEY = 'project-progress-manager-v1.4.1-workspace';
+const PREVIOUS_WORKSPACE_STORAGE_KEYS = ['project-progress-manager-v1.4.0-workspace','project-progress-manager-v1.3.3-workspace','project-progress-manager-v1.3.2-workspace','project-progress-manager-v1.3.1-workspace','project-progress-manager-v1.3.0-workspace'];
 const LEGACY_STORAGE_KEY = 'project-progress-manager-v1.2.0';
 const WORKSPACE_KIND = 'project-category-workbook';
 const MAX_DEPTH = 4;
 const STATUS_OPTIONS = ['未开始', '进行中', '已完成', '延期', '完成但存在问题'];
 const STATUS_CLASS = {'未开始':'notstarted','进行中':'doing','已完成':'done','延期':'delay','完成但存在问题':'issue'};
+const CHART_STATUS_OPTIONS = ['未开始', '进行中', '已完成'];
+const DEFAULT_CHART_STATUSES = ['进行中', '已完成'];
 const TYPE_LABEL = {seq:'系统序号',text:'文本',number:'数字',select:'下拉菜单',checkbox:'复选框',status:'状态',progress:'进度'};
 
 let workspace;
@@ -52,7 +54,7 @@ function sampleTasks() {
 }
 
 function createDefaultState() {
-  return {version:2, appVersion:APP_VERSION, nextId:9, columns:defaultColumns(), tasks:sampleTasks(), ui:{depth:4,chartVisible:true,panelWidth:58,filters:{status:[]},chartLinks:{}}};
+  return {version:2, appVersion:APP_VERSION, nextId:9, columns:defaultColumns(), tasks:sampleTasks(), ui:{depth:4,chartVisible:true,panelWidth:58,filters:{status:[]},chartLinks:{},chartStatuses:DEFAULT_CHART_STATUSES.slice()}};
 }
 
 function deepClone(value) { return JSON.parse(JSON.stringify(value)); }
@@ -105,6 +107,12 @@ function effectiveStatus(task) {
   if (statuses.some(function(s){ return s === '完成但存在问题'; })) return '完成但存在问题';
   if (statuses.every(function(s){ return s === '已完成'; })) return '已完成';
   if (statuses.every(function(s){ return s === '未开始'; })) return '未开始';
+  return '进行中';
+}
+
+function chartStatusGroup(status) {
+  if (status === '未开始') return '未开始';
+  if (status === '已完成' || status === '完成但存在问题') return '已完成';
   return '进行中';
 }
 
@@ -161,12 +169,13 @@ function normalizeState(raw) {
     return {id:Number(task.id)||index+1,parentId:task.parentId===null||task.parentId===''?null:Number(task.parentId),sort:Number(task.sort)||index+1,expanded:task.expanded!==false,name:String(task.name||task.text||'新任务'),detail:String(task.detail||''),status:STATUS_OPTIONS.includes(task.status)?task.status:'未开始',progress:clampNumber(task.progress,0,100),values:task.values&&typeof task.values==='object'?task.values:{}};
   });
   value.nextId = Math.max(Number(value.nextId)||1, value.tasks.reduce(function(max,t){return Math.max(max,t.id+1);},1));
-  value.ui = Object.assign({depth:4,chartVisible:true,panelWidth:58,filters:{status:[]},chartLinks:{}},value.ui||{});
+  value.ui = Object.assign({depth:4,chartVisible:true,panelWidth:58,filters:{status:[]},chartLinks:{},chartStatuses:DEFAULT_CHART_STATUSES.slice()},value.ui||{});
   value.ui.depth = clampNumber(value.ui.depth||4,1,4);
   value.ui.panelWidth = clampNumber(value.ui.panelWidth||58,35,76);
   value.ui.filters = value.ui.filters||{status:[]};
   value.ui.filters.status = Array.isArray(value.ui.filters.status)?value.ui.filters.status:[];
   value.ui.chartLinks = value.ui.chartLinks||{};
+  value.ui.chartStatuses = Array.isArray(value.ui.chartStatuses) ? value.ui.chartStatuses.filter(function(status){return CHART_STATUS_OPTIONS.includes(status);}) : DEFAULT_CHART_STATUSES.slice();
   return value;
 }
 
@@ -414,7 +423,7 @@ function openProjectTabMenu(projectId,anchor){
 function closeProjectTabMenu(){const menu=document.getElementById('projectTabMenu');if(menu){menu.classList.remove('open');menu.setAttribute('aria-hidden','true');}projectMenuTargetId=null;}
 
 function renderAll() {
-  renderProjectTabs(); renderDepthButtons(); renderFilters(); renderAssociations(); renderDataViews(); renderWorkspace(); updateUndoButtons();
+  renderProjectTabs(); renderDepthButtons(); renderFilters(); renderChartStatusFilters(); renderAssociations(); renderDataViews(); renderWorkspace(); updateUndoButtons();
 }
 
 function renderDataViews() { const rows=visibleRows(); renderTable(rows); renderChart(rows); renderSummary(rows); }
@@ -499,13 +508,19 @@ function createProgressEditor(task) {
 }
 
 function renderChart(rows) {
-  const body=document.getElementById('chartBody');body.innerHTML='';const numbers=numberMap();const chartRows=rows.filter(function(item){return chartLinkMatches(item.task);});
-  if(!chartRows.length){const tr=document.createElement('tr');const td=document.createElement('td');td.colSpan=5;td.className='empty-state';td.textContent='没有符合状态图关联条件的任务';tr.appendChild(td);body.appendChild(tr);return;}
-  chartRows.forEach(function(item){
-    const task=item.task;const status=effectiveStatus(task);const progress=effectiveProgress(task);const lane=status==='未开始'?1:(status==='进行中'||status==='延期'?2:(status==='已完成'?3:4));
-    const tr=document.createElement('tr');tr.dataset.taskId=task.id;const taskTd=document.createElement('td');const label=document.createElement('div');label.className='chart-task-label';const num=document.createElement('b');num.textContent=numbers.get(task.id)||'';const name=document.createElement('span');name.textContent=task.name;label.append(num,name);taskTd.appendChild(label);tr.appendChild(taskTd);
-    for(let i=1;i<=4;i++){const td=document.createElement('td');td.className='chart-cell';if(i===lane){const card=document.createElement('div');card.className='chart-card '+STATUS_CLASS[status];const title=document.createElement('div');title.className='chart-card-title';const left=document.createElement('span');left.textContent=task.name;const right=document.createElement('span');right.textContent=(status==='延期'?'延期 · ':'')+progress+'%';title.append(left,right);const track=document.createElement('div');track.className='chart-progress';const fill=document.createElement('i');fill.style.width=progress+'%';track.appendChild(fill);card.append(title,track);td.appendChild(card);}tr.appendChild(td);}body.appendChild(tr);
+  const body=document.getElementById('chartBody');body.innerHTML='';const numbers=numberMap();
+  if(!rows.length){const tr=document.createElement('tr');const td=document.createElement('td');td.className='empty-state';td.textContent='当前没有可显示的任务';tr.appendChild(td);body.appendChild(tr);return;}
+  rows.forEach(function(item){
+    const task=item.task;const status=effectiveStatus(task);const group=chartStatusGroup(status);const progress=effectiveProgress(task);const showCard=state.ui.chartStatuses.includes(group)&&chartLinkMatches(task);
+    const tr=document.createElement('tr');tr.dataset.taskId=task.id;const td=document.createElement('td');td.className='chart-cell';
+    if(showCard){const card=document.createElement('div');card.className='chart-card '+STATUS_CLASS[status];const title=document.createElement('div');title.className='chart-card-title';const left=document.createElement('span');left.textContent=(numbers.get(task.id)||'')+' '+task.name;const right=document.createElement('span');right.textContent=status+' · '+progress+'%';title.append(left,right);const track=document.createElement('div');track.className='chart-progress';const fill=document.createElement('i');fill.style.width=progress+'%';track.appendChild(fill);card.append(title,track);td.appendChild(card);}else{td.classList.add('chart-cell-empty');td.setAttribute('aria-label',group+'未勾选或不符合状态图关联条件');}
+    tr.appendChild(td);body.appendChild(tr);
   });
+}
+
+function renderChartStatusFilters() {
+  const root=document.getElementById('chartStatusFilters');if(!root)return;root.innerHTML='';
+  CHART_STATUS_OPTIONS.forEach(function(status){const label=document.createElement('label');const check=document.createElement('input');check.type='checkbox';check.checked=state.ui.chartStatuses.includes(status);check.addEventListener('change',function(){const next=state.ui.chartStatuses.slice();const index=next.indexOf(status);if(check.checked&&index<0)next.push(status);if(!check.checked&&index>=0)next.splice(index,1);state.ui.chartStatuses=CHART_STATUS_OPTIONS.filter(function(item){return next.includes(item);});markChanged('已调整状态图显示范围');renderChartStatusFilters();renderChart(visibleRows());});label.append(check,document.createTextNode(status));root.appendChild(label);});
 }
 
 function renderSummary(rows) {
@@ -648,7 +663,7 @@ function dateStamp(){const d=new Date();return d.getFullYear()+'-'+String(d.getM
 function safeFileName(name){return String(name||'项目进度').replace(/[\\/:*?"<>|]/g,'_').slice(0,60)||'项目进度';}
 
 const LOCAL_WEB_ASSETS = [
-  'index.html','css/style.css','css/cloud.css','css/projects.css','js/app.js','js/cloud-config.js','js/cloud.js',
+  'index.html','css/style.css','css/cloud.css','css/projects.css','css/password-reset.css','css/history.css','css/chart-align.css','js/app.js','js/cloud-config.js','js/cloud.js',
   'libs/xlsx.full.min.js','libs/exceljs.min.js','libs/supabase.min.js'
 ];
 
@@ -657,7 +672,17 @@ function safeStateScript(){return JSON.stringify(serializeWorkspace()).replace(/
 function injectLocalWebState(html){const marker='<script src="js/app.js"></script>';if(!html.includes(marker))throw new Error('网页入口中未找到应用脚本标记');const scriptEnd='</scr'+'ipt>';const injected='<script>window.__LOCAL_WEB_MODE__=true;window.__LOCAL_WEB_INITIAL_STATE__='+safeStateScript()+';'+scriptEnd+'\n  '+marker;return html.replace(marker,function(){return injected;});}
 async function fetchLocalWebAsset(path,asText){const response=await fetch(new URL(path,window.location.href).href,{cache:'no-store'});if(!response.ok)throw new Error('读取 '+path+' 失败（HTTP '+response.status+'）');return asText?response.text():response.arrayBuffer();}
 async function writeDirectoryFile(root,path,data){const parts=path.split('/');const fileName=parts.pop();let directory=root;for(const part of parts)directory=await directory.getDirectoryHandle(part,{create:true});const file=await directory.getFileHandle(fileName,{create:true});const writable=await file.createWritable();try{await writable.write(data);}finally{await writable.close();}}
-async function buildStandaloneLocalWeb(){let html=injectLocalWebState(await fetchLocalWebAsset('index.html',true));for(const path of ['css/style.css','css/cloud.css','css/projects.css']){const css=await fetchLocalWebAsset(path,true);const style='<style data-local-source="'+path+'">\n'+css+'\n</style>';html=html.replace('<link rel="stylesheet" href="'+path+'">',function(){return style;});}const scriptEnd='</scr'+'ipt>';for(const path of ['libs/xlsx.full.min.js','libs/exceljs.min.js','libs/supabase.min.js','js/app.js','js/cloud-config.js','js/cloud.js']){const code=(await fetchLocalWebAsset(path,true)).replace(/<\/script/gi,'<\\/script');const inline='<script data-local-source="'+path+'">\n'+code+'\n'+scriptEnd;html=html.replace('<script src="'+path+'"></script>',function(){return inline;});}return html;}
+async function buildStandaloneLocalWeb(){
+  let html=injectLocalWebState(await fetchLocalWebAsset('index.html',true));
+  const styleAssets=['css/style.css','css/cloud.css','css/projects.css','css/password-reset.css','css/history.css','css/chart-align.css'];
+  const scriptAssets=['libs/xlsx.full.min.js','libs/exceljs.min.js','libs/supabase.min.js','js/app.js','js/cloud-config.js','js/cloud.js'];
+  styleAssets.forEach(function(path,index){const tag='<link rel="stylesheet" href="'+path+'">';if(!html.includes(tag))throw new Error('网页入口中未找到样式标记：'+path);html=html.replace(tag,'<!--LOCAL_STYLE_'+index+'-->');});
+  scriptAssets.forEach(function(path,index){const tag='<script src="'+path+'"></script>';if(!html.includes(tag))throw new Error('网页入口中未找到脚本标记：'+path);html=html.replace(tag,'<!--LOCAL_SCRIPT_'+index+'-->');});
+  for(let index=0;index<styleAssets.length;index++){const path=styleAssets[index];const css=await fetchLocalWebAsset(path,true);const replacement='<style data-local-source="'+path+'">\n'+css+'\n</style>';html=html.replace('<!--LOCAL_STYLE_'+index+'-->',function(){return replacement;});}
+  const scriptEnd='</scr'+'ipt>';
+  for(let index=0;index<scriptAssets.length;index++){const path=scriptAssets[index];const code=(await fetchLocalWebAsset(path,true)).replace(/<\/script/gi,'<\\/script');const replacement='<script data-local-source="'+path+'">\n'+code+'\n'+scriptEnd;html=html.replace('<!--LOCAL_SCRIPT_'+index+'-->',function(){return replacement;});}
+  return html;
+}
 async function saveStandaloneLocalWeb(){const html=await buildStandaloneLocalWeb();const fileName=localWebFolderName()+'.html';if(window.showSaveFilePicker){const handle=await window.showSaveFilePicker({suggestedName:fileName,types:[{description:'本地网页版',accept:{'text/html':['.html']}}]});const writable=await handle.createWritable();try{await writable.write(html);}finally{await writable.close();}}else downloadBlob(new Blob([html],{type:'text/html;charset=utf-8'}),fileName);showToast('本地网页版已保存','双击保存的 HTML 文件即可使用；全部项目类别和任务数据已经包含在文件中。','success');updateStatus('本地网页版已保存');}
 async function saveLocalWebVersion(){
   if(location.protocol==='file:')return showToast('当前已经是本地网页版','直接继续使用即可，任务会自动保存在当前浏览器中。','success');
@@ -730,7 +755,7 @@ function bindEvents() {
 }
 
 function init() {
-  workspace=loadLocalWorkspace();state=activeProject().state;const batch=document.getElementById('batchStatus');const parentStatus=document.getElementById('parentStatusSelect');STATUS_OPTIONS.forEach(function(status){appendOption(batch,status,status);appendOption(parentStatus,status,status);});bindEvents();initElectronMenu();renderAll();updateStatus('准备就绪 — V'+APP_VERSION+' · '+activeProject().name);setSaveLabel('已自动保存');
+  workspace=loadLocalWorkspace();state=activeProject().state;const batch=document.getElementById('batchStatus');const parentStatus=document.getElementById('parentStatusSelect');STATUS_OPTIONS.forEach(function(status){appendOption(batch,status,status);appendOption(parentStatus,status,status);});bindEvents();initElectronMenu();renderAll();saveLocal();updateStatus('准备就绪 — V'+APP_VERSION+' · '+activeProject().name);setSaveLabel('已自动保存');
   window.ProjectProgressApp={getState:function(){return serializeWorkspace();},replaceState:function(nextState,message){workspace=normalizeWorkspace(nextState);state=activeProject().state;resetProjectInteraction();saveLocal();renderAll();updateStatus(message||'已载入云端项目工作簿');},showToast:showToast,setSaveLabel:setSaveLabel,updateStatus:updateStatus,effectiveStatus:function(id){return effectiveStatus(byId(id));},effectiveProgress:function(id){return effectiveProgress(byId(id));},numberMap:function(){return Object.fromEntries(numberMap());},visibleRows:function(){return visibleRows().map(function(r){return{id:r.task.id,context:r.context};});},reset:function(){setCurrentState(createEmptyState(workspace.columns),false);selectedIds.clear();saveLocal();renderAll();}};
 }
 

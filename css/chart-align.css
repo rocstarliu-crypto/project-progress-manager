@@ -1,0 +1,92 @@
+/* V1.4.1：状态图取消分栏，始终与左侧任务逐行对应。 */
+.chart-status-filter {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  white-space: nowrap;
+  padding-top: 2px;
+}
+
+.chart-status-filter > span {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.chart-status-options {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.chart-status-options label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 8px;
+  border: 1px solid #cdd9e8;
+  border-radius: 6px;
+  background: #fff;
+  cursor: pointer;
+}
+
+.chart-status-options label:has(input:checked) {
+  border-color: #82aaf0;
+  background: #eff6ff;
+  color: #1d5fb8;
+}
+
+.chart-status-options input {
+  width: 15px;
+  height: 15px;
+  margin: 0;
+}
+
+.association-divider {
+  align-self: stretch;
+  width: 1px;
+  background: #d8e1ec;
+  margin: 0 2px;
+}
+
+.status-chart {
+  width: 100%;
+  min-width: 0;
+}
+
+.status-chart th {
+  width: auto;
+}
+
+.status-chart .chart-cell {
+  padding: 5px 8px !important;
+}
+
+.status-chart .chart-card {
+  width: 100%;
+}
+
+.chart-cell-empty {
+  background: #fbfcfe !important;
+}
+
+.chart-cell-empty::after {
+  content: "";
+  display: block;
+  height: 1px;
+  background: #edf1f5;
+}
+
+@media (max-width: 1300px) {
+  .association-panel {
+    overflow-x: auto;
+    flex-wrap: nowrap;
+  }
+
+  .chart-status-filter > span {
+    display: none;
+  }
+
+  .status-chart {
+    min-width: 0;
+  }
+}

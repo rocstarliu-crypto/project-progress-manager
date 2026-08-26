@@ -3,16 +3,18 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1">
-  <title>项目进度管理 V1.3.3</title>
+  <title>项目进度管理 V1.4.1</title>
   <link rel="stylesheet" href="css/style.css">
   <link rel="stylesheet" href="css/cloud.css">
   <link rel="stylesheet" href="css/projects.css">
   <link rel="stylesheet" href="css/password-reset.css">
+  <link rel="stylesheet" href="css/history.css">
+  <link rel="stylesheet" href="css/chart-align.css">
 </head>
 <body>
   <div id="app" class="app-shell">
     <header class="app-header">
-      <div class="brand"><span class="brand-mark">◆</span><span>项目进度管理</span><em>V1.3.3</em></div>
+      <div class="brand"><span class="brand-mark">◆</span><span>项目进度管理</span><em>V1.4.1</em></div>
       <nav class="menu-bar" aria-label="文件操作">
         <button id="btnNew">新建</button><button id="btnOpen">打开项目</button><button id="btnSave">保存</button><button id="btnSaveAs" title="选择文件夹，保存可独立打开的完整本地网页">保存本地网页版</button>
         <span class="toolbar-divider"></span>
@@ -22,6 +24,7 @@
       <div class="cloud-toolbar">
         <span id="cloudConnection" class="cloud-connection local"><i></i><span>仅本机</span></span>
         <button id="btnCloudProject" class="cloud-project-button">登录云端</button>
+        <button id="btnProjectHistoryHeader" class="quiet hidden" title="查看当前云端项目的历史版本">历史版本</button>
         <span id="cloudUser" class="cloud-user hidden"></span>
         <button id="btnCloudLogout" class="quiet hidden">退出</button>
       </div>
@@ -52,6 +55,8 @@
     </section>
 
     <section id="chartAssociation" class="association-panel">
+      <div class="chart-status-filter"><strong>状态图显示</strong><div id="chartStatusFilters" class="chart-status-options"></div><span>默认显示进行中和已完成</span></div>
+      <div class="association-divider"></div>
       <div class="association-title"><strong>状态图关联</strong><span>勾选自定义列后选择内容；不同列之间按“且”筛选。</span></div>
       <div id="associationControls" class="association-controls"></div>
     </section>
@@ -64,7 +69,7 @@
     <main id="workspace" class="workspace">
       <section id="tablePanel" class="table-panel"><div id="tableScroll" class="table-scroll"><table id="taskTable"><colgroup id="tableCols"></colgroup><thead><tr id="tableHead"></tr></thead><tbody id="taskBody"></tbody></table></div><div id="columnGuide" class="column-guide"><span id="columnGuideText"></span></div></section>
       <div id="panelResize" class="panel-resize" title="拖动调整表格与状态图宽度"></div>
-      <section id="chartPanel" class="chart-panel"><div id="chartScroll" class="chart-scroll"><table class="status-chart"><thead><tr><th class="chart-task-col">任务</th><th>未开始</th><th>进行中</th><th>已完成</th><th>完成但存在问题</th></tr></thead><tbody id="chartBody"></tbody></table></div></section>
+      <section id="chartPanel" class="chart-panel"><div id="chartScroll" class="chart-scroll"><table class="status-chart"><thead><tr><th>任务进度（与左侧逐行对应）</th></tr></thead><tbody id="chartBody"></tbody></table></div></section>
     </main>
 
     <section class="project-tabs-bar" aria-label="项目类别工作表">
@@ -73,7 +78,7 @@
       <span class="project-tabs-hint">所有标签共用相同列结构，任务内容互相独立</span>
     </section>
 
-    <footer class="statusbar"><span id="statusMessage">准备就绪</span><span class="footer-spacer"></span><span class="legend"><i class="dot notstarted"></i>未开始<i class="dot doing"></i>进行中<i class="dot done"></i>已完成<i class="dot issue"></i>完成但存在问题 / 延期</span></footer>
+    <footer class="statusbar"><span id="statusMessage">准备就绪</span><span class="footer-spacer"></span><span class="legend"><i class="dot notstarted"></i>未开始<i class="dot doing"></i>进行中（含延期）<i class="dot done"></i>已完成（含完成但存在问题）</span></footer>
   </div>
 
   <input id="excelInput" type="file" accept=".xlsx,.xls" hidden>
@@ -118,7 +123,7 @@
         <p class="cloud-help">保存后新密码立即生效，您可以继续使用云端协作功能。</p>
       </section>
       <section id="cloudProjectsView" class="cloud-view hidden">
-        <div class="cloud-account-row"><div><span>当前账号</span><strong id="cloudAccountEmail"></strong></div><button id="btnRefreshProjects">刷新项目</button></div>
+        <div class="cloud-account-row"><div><span>当前账号</span><strong id="cloudAccountEmail"></strong></div><div class="cloud-account-actions"><button id="btnLoginHistory">登录历史</button><button id="btnRefreshProjects">刷新项目</button></div></div>
         <div id="cloudCurrentProject" class="cloud-current hidden"><div><span>当前协作项目</span><strong id="cloudCurrentProjectName"></strong></div><div class="share-code"><span>共享码</span><code id="cloudShareCode"></code><button id="btnCopyShareCode">复制</button></div><small>把共享码发给成员即可；不要共享你的密码。</small></div>
         <label class="cloud-project-select">切换项目<select id="cloudProjectSelect"><option value="">请选择项目</option></select></label>
         <div class="cloud-project-grid">
@@ -128,7 +133,11 @@
         <div id="cloudActivity" class="cloud-activity">尚未选择云端项目。</div>
       </section>
     </div>
-  </div>
+  </div></div>
+
+  <div id="projectHistoryModal" class="modal" aria-hidden="true"><div class="modal-card history-card"><header><div><h2>项目历史版本</h2><p id="projectHistorySubtitle" class="cloud-modal-subtitle">按保存时间查看，并可恢复到任意历史版本。</p></div><button class="modal-close" data-close="projectHistoryModal">×</button></header><div class="modal-body"><div class="history-notice">每次云端保存都会形成一个版本。恢复历史不会删除当前版本，恢复前的内容仍可再次找回。</div><div id="projectHistoryList" class="history-list"><div class="history-empty">正在读取历史版本…</div></div></div><footer><button id="btnRefreshProjectHistory">刷新</button><button data-close="projectHistoryModal" class="primary">完成</button></footer></div></div>
+
+  <div id="loginHistoryModal" class="modal" aria-hidden="true"><div class="modal-card history-card login-history-card"><header><div><h2>我的登录历史</h2><p class="cloud-modal-subtitle">仅显示当前账号自己的记录。</p></div><button class="modal-close" data-close="loginHistoryModal">×</button></header><div class="modal-body"><div class="history-notice">区域根据登录设备的时区判断，仅用于简单核对，不代表精确定位。</div><div id="loginHistoryList" class="history-list"><div class="history-empty">正在读取登录记录…</div></div></div><footer><button id="btnRefreshLoginHistory">刷新</button><button data-close="loginHistoryModal" class="primary">完成</button></footer></div></div>
 
   <div id="toastRegion" class="toast-region" aria-live="polite"></div><div id="dragHint" class="drag-hint"></div>
   <script src="libs/xlsx.full.min.js"></script><script src="libs/exceljs.min.js"></script>

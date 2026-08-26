@@ -2,6 +2,7 @@
 
 (function () {
   const PROJECT_KEY = 'project-progress-manager-v1.2.0-cloud-project';
+  const DRAFT_KEY_PREFIX = 'project-progress-manager-v1.4.0-cloud-draft-';
   const config = window.PROJECT_CLOUD_CONFIG || {};
   let recoveryIntent = /(?:^|[?#&])type=recovery(?:&|$)/i.test(location.hash + '&' + location.search);
   let app = null;
@@ -18,11 +19,12 @@
   let dirty = false;
   let applyingRemote = false;
   let conflictOpen = false;
+  let draftStorageWarned = false;
   const el = {};
   const byId = function (id) { return document.getElementById(id); };
 
   function cacheElements() {
-    ['cloudConnection','btnCloudProject','cloudUser','btnCloudLogout','cloudModal','cloudAuthView','cloudPasswordResetView','cloudNewPasswordView','cloudProjectsView','cloudEmail','cloudPassword','btnCloudRegister','btnCloudLogin','btnCloudForgotPassword','cloudPasswordResetEmail','btnCloudSendPasswordReset','btnCloudBackToLogin','cloudNewPassword','cloudNewPasswordConfirm','btnCloudUpdatePassword','cloudAccountEmail','btnRefreshProjects','cloudCurrentProject','cloudCurrentProjectName','cloudShareCode','btnCopyShareCode','cloudProjectSelect','cloudNewProjectName','btnCreateCloudProject','cloudJoinCode','btnJoinCloudProject','cloudActivity'].forEach(function (id) { el[id] = byId(id); });
+    ['cloudConnection','btnCloudProject','btnProjectHistoryHeader','cloudUser','btnCloudLogout','cloudModal','cloudAuthView','cloudPasswordResetView','cloudNewPasswordView','cloudProjectsView','cloudEmail','cloudPassword','btnCloudRegister','btnCloudLogin','btnCloudForgotPassword','cloudPasswordResetEmail','btnCloudSendPasswordReset','btnCloudBackToLogin','cloudNewPassword','cloudNewPasswordConfirm','btnCloudUpdatePassword','cloudAccountEmail','btnLoginHistory','btnRefreshProjects','cloudCurrentProject','cloudCurrentProjectName','cloudShareCode','btnCopyShareCode','cloudProjectSelect','cloudNewProjectName','btnCreateCloudProject','cloudJoinCode','btnJoinCloudProject','cloudActivity','projectHistoryModal','projectHistorySubtitle','projectHistoryList','btnRefreshProjectHistory','loginHistoryModal','loginHistoryList','btnRefreshLoginHistory'].forEach(function (id) { el[id] = byId(id); });
   }
 
   function toast(title, detail, type) { if (app && app.showToast) app.showToast(title, detail, type); }
@@ -33,6 +35,34 @@
     el.cloudConnection.querySelector('span').textContent = label;
   }
   function openCloudModal() { el.cloudModal.classList.add('open'); el.cloudModal.setAttribute('aria-hidden', 'false'); renderAccountState(); }
+  function openModal(element) { if (!element) return; element.classList.add('open'); element.setAttribute('aria-hidden', 'false'); }
+  function closeModal(element) { if (!element) return; element.classList.remove('open'); element.setAttribute('aria-hidden', 'true'); }
+  function draftKey(projectId) { return DRAFT_KEY_PREFIX + projectId; }
+  function saveDraftSnapshot(snapshot) {
+    if (!currentProject || !app) return;
+    try {
+      localStorage.setItem(draftKey(currentProject.project_id), JSON.stringify({data:snapshot || app.getState(), baseRevision:currentRevision, savedAt:new Date().toISOString()}));
+      draftStorageWarned = false;
+    } catch (error) {
+      if (!draftStorageWarned) toast('本机草稿保护失败', '浏览器存储空间不足或不可用：' + humanError(error) + '。请立即点击“保存”下载备份。', 'error');
+      draftStorageWarned = true;
+    }
+  }
+  function readDraft(projectId) {
+    try {
+      const raw = localStorage.getItem(draftKey(projectId));
+      if (!raw) return null;
+      const draft = JSON.parse(raw);
+      return draft && draft.data ? draft : null;
+    } catch (error) { return null; }
+  }
+  function clearDraft(projectId) { try { localStorage.removeItem(draftKey(projectId)); } catch (error) {} }
+  function formatDateTime(value) { const date = new Date(value); return Number.isNaN(date.getTime()) ? String(value || '') : date.toLocaleString('zh-CN', {hour12:false}); }
+  function currentRegion() {
+    const zone = Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+    const labels = {'Asia/Shanghai':'中国·北京时间','Asia/Hong_Kong':'中国·香港','Asia/Macau':'中国·澳门','Asia/Taipei':'中国·台北','Asia/Singapore':'新加坡','Asia/Tokyo':'日本·东京','America/Los_Angeles':'美国·西部','America/New_York':'美国·东部','Europe/London':'英国·伦敦'};
+    return labels[zone] ? labels[zone] + '（' + zone + '）' : (zone || navigator.language || '未知区域');
+  }
   function enterPasswordRecovery(nextSession, notifyUser) {
     if (nextSession) session = nextSession;
     recoveryIntent = false;
@@ -58,6 +88,7 @@
     if (/SHARE_CODE_NOT_FOUND/i.test(message)) return '没有找到该共享码，请让项目所有者重新复制。';
     if (/NOT_AUTHENTICATED/i.test(message)) return '登录状态已失效，请重新登录。';
     if (/NOT_AUTHORIZED/i.test(message)) return '当前账号没有编辑这个项目的权限。';
+    if (/PGRST202|project_state_history|list_project_history|restore_collaboration_project|record_login_history|list_login_history|Could not find the function/i.test(message)) return '云数据库尚未执行 V1.4.0 升级脚本，历史记录功能暂不可用。';
     return message;
   }
 
@@ -70,6 +101,7 @@
     el.cloudProjectsView.classList.toggle('hidden', !loggedIn || resetting);
     el.cloudUser.classList.toggle('hidden', !loggedIn);
     el.btnCloudLogout.classList.toggle('hidden', !loggedIn || resetting);
+    if (el.btnProjectHistoryHeader) el.btnProjectHistoryHeader.classList.toggle('hidden', !loggedIn || resetting || !currentProject);
     if (resetting) {
       el.btnCloudProject.textContent = '设置新密码';
       setConnection('signed-in', '设置新密码');
@@ -158,7 +190,25 @@
     const snapshot = await fetchSnapshot(projectId);
     currentProject = next;
     localStorage.setItem(PROJECT_KEY, projectId);
-    applySnapshot(snapshot, '已进入云端项目“' + next.name + '”');
+    const localDraft = readDraft(projectId);
+    if (localDraft) {
+      const savedAt = formatDateTime(localDraft.savedAt);
+      const restoreLocal = confirm('发现这个项目有一份尚未同步的本机草稿（' + savedAt + '）。\n\n点击“确定”：恢复本机草稿并继续同步。\n点击“取消”：暂时载入云端版本，本机草稿仍会保留。');
+      if (restoreLocal) {
+        applyingRemote = true;
+        try {
+          currentRevision = Number(snapshot.revision || 0);
+          dirty = false;
+          app.replaceState(localDraft.data, '已恢复尚未同步的本机草稿');
+        } finally { applyingRemote = false; }
+        dirty = true;
+        scheduleSave(true);
+        toast('本机草稿已恢复', '系统正在把草稿保存为新的云端版本。', 'success');
+      } else {
+        applySnapshot(snapshot, '已载入云端项目“' + next.name + '”');
+        toast('本机草稿仍然保留', '下次进入该项目时仍可选择恢复；继续编辑云端版本会替换这份草稿。');
+      }
+    } else applySnapshot(snapshot, '已进入云端项目“' + next.name + '”');
     subscribe(projectId);
     renderProjects();
     renderAccountState();
@@ -194,6 +244,7 @@
   function scheduleSave(immediate) {
     if (applyingRemote || !session || !currentProject) return;
     dirty = true;
+    saveDraftSnapshot();
     setConnection('syncing', '等待同步');
     app.setSaveLabel('等待云端同步');
     clearTimeout(saveTimer);
@@ -205,12 +256,14 @@
     if (saveInFlight) { saveQueued = true; return; }
     saveInFlight = true;
     const snapshot = app.getState();
+    saveDraftSnapshot(snapshot);
     setConnection('syncing', '正在同步');
     try {
       const result = await client.rpc('save_collaboration_project', {p_project_id:currentProject.project_id, p_expected_revision:currentRevision, p_data:snapshot});
       if (result.error) throw result.error;
       currentRevision = Number(result.data || currentRevision + 1);
       dirty = false;
+      clearDraft(currentProject.project_id);
       app.setSaveLabel('云端已同步');
       setConnection('online', '云端已同步');
       setActivity('最近一次同步成功：' + new Date().toLocaleTimeString());
@@ -258,6 +311,8 @@
       const result = await client.auth.signInWithPassword({email:email, password:password});
       if (result.error) throw result.error;
       el.cloudPassword.value = '';
+      try { await recordLoginHistory(); }
+      catch (historyError) { toast('登录成功，但未记录登录历史', humanError(historyError), 'error'); }
       toast('登录成功', '正在读取你的协作项目。', 'success');
     } catch (error) { toast('登录失败', humanError(error), 'error'); }
     finally { setBusy(el.btnCloudLogin, false); }
@@ -353,6 +408,130 @@
     catch (error) { toast('无法自动复制', '共享码是：' + currentProject.share_code, 'error'); }
   }
 
+  async function recordLoginHistory() {
+    const result = await client.rpc('record_login_history', {p_region:currentRegion()});
+    if (result.error) throw result.error;
+  }
+
+  function renderProjectHistory(rows) {
+    el.projectHistoryList.innerHTML = '';
+    if (!rows.length) {
+      el.projectHistoryList.innerHTML = '<div class="history-empty">当前项目还没有历史版本。</div>';
+      return;
+    }
+    rows.forEach(function (item) {
+      const revision = Number(item.revision || 0);
+      const current = revision === currentRevision;
+      const row = document.createElement('div');
+      row.className = 'history-item' + (current ? ' current' : '');
+      const time = document.createElement('div');
+      time.className = 'history-time';
+      const strong = document.createElement('strong');
+      strong.textContent = formatDateTime(item.saved_at);
+      const small = document.createElement('small');
+      small.textContent = current ? '当前使用版本' : '可恢复版本';
+      time.append(strong, small);
+      const version = document.createElement('span');
+      version.textContent = '版本 ' + revision;
+      const author = document.createElement('span');
+      author.textContent = item.saved_by && session && item.saved_by === session.user.id ? '保存人：我' : '保存人：其他成员';
+      const action = item.action === 'restore' ? '历史恢复' : item.action === 'initial' ? '项目创建' : '自动保存';
+      author.title = action;
+      const button = document.createElement('button');
+      button.textContent = current ? '当前版本' : '恢复到此时间';
+      button.disabled = current;
+      if (!current) {
+        button.dataset.historyId = item.history_id;
+        button.dataset.historyTime = formatDateTime(item.saved_at);
+      }
+      row.append(time, version, author, button);
+      el.projectHistoryList.appendChild(row);
+    });
+  }
+
+  async function loadProjectHistory() {
+    if (!session || !currentProject) return;
+    el.projectHistoryList.innerHTML = '<div class="history-empty">正在读取历史版本…</div>';
+    const result = await client.rpc('list_project_history', {p_project_id:currentProject.project_id, p_limit:50});
+    if (result.error) {
+      el.projectHistoryList.innerHTML = '<div class="history-empty history-error">' + humanError(result.error) + '</div>';
+      return;
+    }
+    renderProjectHistory(Array.isArray(result.data) ? result.data : []);
+  }
+
+  async function openProjectHistory() {
+    if (!session || !currentProject) {
+      openCloudModal();
+      return toast('请先选择云端项目', '登录后选择一个云端协作项目，才能查看历史版本。');
+    }
+    el.projectHistorySubtitle.textContent = '当前项目：' + currentProject.name + '。按保存时间查看，并可恢复到历史版本。';
+    openModal(el.projectHistoryModal);
+    await loadProjectHistory();
+  }
+
+  async function restoreProjectHistory(historyId, historyTime, button) {
+    if (!session || !currentProject || !historyId) return;
+    if (!confirm('确定把当前项目恢复到 ' + historyTime + ' 吗？\n\n恢复前的当前版本也会保留在历史记录中，可以再次找回。')) return;
+    setBusy(button, true, '正在恢复…');
+    try {
+      const result = await client.rpc('restore_collaboration_project', {p_project_id:currentProject.project_id, p_history_id:historyId, p_expected_revision:currentRevision});
+      if (result.error) throw result.error;
+      currentRevision = Number(result.data || currentRevision + 1);
+      clearDraft(currentProject.project_id);
+      const snapshot = await fetchSnapshot(currentProject.project_id);
+      applySnapshot(snapshot, '已恢复到 ' + historyTime);
+      await loadProjectHistory();
+      toast('历史版本已恢复', '恢复前的版本仍然保留，可以随时再次恢复。', 'success');
+    } catch (error) {
+      toast('恢复失败', humanError(error) + '。当前项目没有被修改。', 'error');
+      if (/CLOUD_VERSION_CONFLICT/i.test(String(error && error.message))) await selectProject(currentProject.project_id, true);
+    } finally { setBusy(button, false); }
+  }
+
+  function renderLoginHistory(rows) {
+    el.loginHistoryList.innerHTML = '';
+    if (!rows.length) {
+      el.loginHistoryList.innerHTML = '<div class="history-empty">当前账号还没有登录历史记录。</div>';
+      return;
+    }
+    rows.forEach(function (item) {
+      const row = document.createElement('div');
+      row.className = 'history-item login-history-item';
+      const time = document.createElement('div');
+      time.className = 'history-time';
+      const strong = document.createElement('strong');
+      strong.textContent = formatDateTime(item.logged_in_at);
+      const small = document.createElement('small');
+      small.textContent = '登录时间';
+      time.append(strong, small);
+      const region = document.createElement('span');
+      region.textContent = item.region || '未知区域';
+      row.append(time, region);
+      el.loginHistoryList.appendChild(row);
+    });
+  }
+
+  async function loadLoginHistory() {
+    if (!session) return;
+    el.loginHistoryList.innerHTML = '<div class="history-empty">正在读取登录记录…</div>';
+    const result = await client.rpc('list_login_history', {p_limit:30});
+    if (result.error) {
+      el.loginHistoryList.innerHTML = '<div class="history-empty history-error">' + humanError(result.error) + '</div>';
+      return;
+    }
+    renderLoginHistory(Array.isArray(result.data) ? result.data : []);
+  }
+
+  async function openLoginHistory() {
+    if (!session) {
+      openCloudModal();
+      return toast('请先登录', '登录后只能查看当前账号自己的登录历史。');
+    }
+    openModal(el.loginHistoryModal);
+    await loadLoginHistory();
+  }
+
   function bindEvents() {
     el.btnCloudProject.addEventListener('click', openCloudModal);
     el.btnCloudLogout.addEventListener('click', logout);
@@ -367,8 +546,17 @@
     el.btnCreateCloudProject.addEventListener('click', createProject);
     el.btnJoinCloudProject.addEventListener('click', joinProject);
     el.btnCopyShareCode.addEventListener('click', copyShareCode);
+    el.btnProjectHistoryHeader.addEventListener('click', function () { openProjectHistory().catch(function (error) { toast('读取历史版本失败', humanError(error), 'error'); }); });
+    el.btnLoginHistory.addEventListener('click', function () { openLoginHistory().catch(function (error) { toast('读取登录历史失败', humanError(error), 'error'); }); });
+    el.btnRefreshProjectHistory.addEventListener('click', function () { loadProjectHistory().catch(function (error) { toast('刷新失败', humanError(error), 'error'); }); });
+    el.btnRefreshLoginHistory.addEventListener('click', function () { loadLoginHistory().catch(function (error) { toast('刷新失败', humanError(error), 'error'); }); });
+    el.projectHistoryList.addEventListener('click', function (event) {
+      const button = event.target.closest('button[data-history-id]');
+      if (button) restoreProjectHistory(button.dataset.historyId, button.dataset.historyTime, button);
+    });
     window.addEventListener('online', function () { if (dirty) scheduleSave(true); else if (currentProject) setConnection('online', '云端已同步'); });
     window.addEventListener('offline', function () { if (currentProject) setConnection('error', '网络已断开'); });
+    window.addEventListener('beforeunload', function () { if (dirty) saveDraftSnapshot(); });
   }
 
   async function handleSession(nextSession, autoLoad) {
